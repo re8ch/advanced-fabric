@@ -25,7 +25,12 @@ spec:
           image: {{ .Values.headlampPlugin.installImage | quote }}
           command: [/bin/sh, -ec]
           args:
-            - mkdir -p /plugins/advanced-fabric-{{ .Chart.AppVersion }};
+            - set -- /plugins/advanced-fabric-*;
+              if [ -d "$1" ]; then
+                tar -czf /plugins/.advanced-fabric-legacy-{{ .Chart.AppVersion }}.tgz "$@";
+                rm -rf "$@";
+              fi;
+              mkdir -p /plugins/advanced-fabric-{{ .Chart.AppVersion }};
               cp /bundle/main.js /bundle/package.json /plugins/advanced-fabric-{{ .Chart.AppVersion }}/
           volumeMounts:
             - {name: bundle, mountPath: /bundle, readOnly: true}
