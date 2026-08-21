@@ -23,7 +23,8 @@ publish_status() {
   bgp_rib=$(printf '%s' "$rib" | jq -c '[((.routes // {}) | to_entries[]) | {prefix:.key,paths:[.value[] | {
     peer:(.peerId // .peerHostname // .nexthops[0].hostname // "unknown"),
     nextHops:[.nexthops[]? | (.ip // .hostname // "unknown")],asPath:(.path // ""),
-    best:((.bestpath.overall // .bestpath // false) == true),multipath:(.multipath == true)}]}]' 2>/dev/null || printf '[]')
+    best:(if (.bestpath | type) == "object" then (.bestpath.overall == true) else (.bestpath == true) end),
+    multipath:(.multipath == true)}]}]' 2>/dev/null || printf '[]')
   bfd=$(host vtysh -c 'show bfd peers json' 2>/dev/null || printf '[]')
   routes=$(host ip -j route show table main 2>/dev/null || printf '[]')
   ecmp=$(printf '%s' "$routes" | jq -c '[.[] | select(((.nexthops // []) | length) > 1) | {dst: (.dst // "default"), protocol, metric, nexthops: [.nexthops[] | {gateway, dev, weight}]}]' 2>/dev/null || printf '[]')
