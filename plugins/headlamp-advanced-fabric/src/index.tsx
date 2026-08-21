@@ -8,6 +8,7 @@ type FabricStatus = {
   observedAt?: string;
   datapath?: {mode?: string; tunnelInterfaces?: string[]};
   frr?: {state?: string; bgp?: unknown; bfd?: unknown};
+  bgpRib?: Array<{prefix: string; paths: any[]}>;
   ecmpRoutes?: unknown[];
   peerRoutes?: unknown[];
   pathRankings?: Record<string, unknown>;
@@ -64,6 +65,10 @@ function Dashboard() {
       price: path.priceStatus || 'unknown'})));
   const peerRows = (selected?.peerRoutes || []).map((peer: any) => ({name: peer.name, role: peer.role || '—',
     class: peer.class || '—', internalIP: peer.internalIP || '—', acceleratedIP: peer.acceleratedIP || '—', podCIDR: peer.podCIDR || '—'}));
+  const bgpRows = (selected?.bgpRib || []).flatMap((route: any) => (route.paths || []).map((path: any) => ({
+    prefix: route.prefix, peer: path.peer || '—', nextHops: path.nextHops || [], asPath: path.asPath || 'local',
+    best: Boolean(path.best), multipath: Boolean(path.multipath), reason: path.best ? 'best' : path.multipath ? 'multipath' : 'candidate only'
+  })));
   return <Box sx={{p: 2}}>
     <Typography variant="h4">Advanced Fabric</Typography>
     <Typography color="text.secondary">各节点实际 Native/VXLAN、FRR/BGP/BFD 与内核 ECMP 视图。</Typography>
@@ -79,6 +84,7 @@ function Dashboard() {
       </FormControl>
       {selected && <Stack direction="row" spacing={1} flexWrap="wrap">
         <Chip label={`Kernel ECMP sets ${ecmpRows.length}`} color={ecmpRows.length ? 'success' : 'default'}/>
+        <Chip label={`BGP candidate paths ${bgpRows.length}`} color={bgpRows.length ? 'info' : 'default'}/>
         <Chip label={`Candidate decisions ${decisionRows.length}`} color={decisionRows.length ? 'primary' : 'default'}/>
         <Chip label={`Known peers ${peerRows.length}`}/>
       </Stack>}
@@ -95,6 +101,14 @@ function Dashboard() {
         {header: 'Profile', accessorKey: 'profile'}, {header: 'Rank', accessorKey: 'rank'},
         {header: 'Peer', accessorKey: 'peer'}, {header: 'Path type', accessorKey: 'pathType'},
         {header: 'Score', accessorKey: 'score'}, {header: 'Quota', accessorKey: 'quota'}, {header: 'Price', accessorKey: 'price'}
+      ] as any}/>
+    </SectionBox>
+    <SectionBox title={`${effectiveNode || 'Node'}: BGP candidate / selected paths`}>
+      <Table data={bgpRows} columns={[
+        {header: 'Prefix', accessorKey: 'prefix'}, {header: 'Peer', accessorKey: 'peer'},
+        {header: 'Next hops', accessorFn: (row: any) => <Stack direction="row" gap={0.5} flexWrap="wrap">{row.nextHops.map((hop: string) => <Chip key={hop} size="small" label={hop}/>)}</Stack>},
+        {header: 'AS path', accessorKey: 'asPath'},
+        {header: 'Selection', accessorFn: (row: any) => <Chip size="small" color={row.best ? 'success' : row.multipath ? 'primary' : 'default'} label={row.reason}/>}
       ] as any}/>
     </SectionBox>
     <SectionBox title={`${effectiveNode || 'Node'}: peer inventory`}>

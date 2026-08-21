@@ -1,6 +1,6 @@
 {
   "name": "@re8ch/headlamp-advanced-fabric",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Headlamp console for Advanced Fabric routing state",
   "scripts": {
     "build": "headlamp-plugin build",
