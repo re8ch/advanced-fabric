@@ -1,0 +1,7 @@
+{{- if .Values.advancedFabric.enabled }}
+apiVersion: networking.re8ch.com/v1alpha1
+kind: AdvancedFabric
+metadata: {name: re8ch}
+spec:
+{{ toYaml (omit .Values.advancedFabric "enabled") | indent 2 }}
+{{- end }}

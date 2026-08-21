@@ -1,0 +1,19 @@
+name: Chart CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - run: helm lint charts/re8ch-advanced-fabric
+      - run: helm template advanced-fabric charts/re8ch-advanced-fabric --namespace advanced-fabric >/dev/null
+

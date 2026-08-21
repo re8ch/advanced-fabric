@@ -1,0 +1,12 @@
+# Site-specific operational evidence is retained beside the source but is not
+# part of the public application package.
+address-domains.json
+*.conf
+lb-ipam-*.yaml
+service-advertisement.yaml
+cilium-frr-handoff.yaml
+canary-service.yaml
+host-network-audit-pods.yaml
+validate.py
+files/__pycache__/
+files/*.pyc

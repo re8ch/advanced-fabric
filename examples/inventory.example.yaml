@@ -1,0 +1,30 @@
+advancedFabric:
+  nodes:
+    - name: spine-a
+      class: A
+      role: spine
+      asn: 65001
+      internalIP: 192.0.2.10
+      acceleratedIP: 198.51.100.10
+      podCIDR: 10.42.1.0/24
+      provider: example
+      region: example-a
+      failureDomain: rack-a
+      uplinkMbps: 1000
+      monthlyTrafficLimitGiB: 1024
+      publicAuthority: true
+      inventoryComplete: true
+    - name: leaf-c
+      class: C
+      role: leaf
+      asn: 4200000011
+      internalIP: 192.0.2.11
+      acceleratedIP: 198.51.100.11
+      podCIDR: 10.42.2.0/24
+      provider: example
+      region: example-b
+      failureDomain: rack-b
+      uplinkMbps: 100
+      publicAuthority: false
+      inventoryComplete: true
+

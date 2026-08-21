@@ -1,0 +1,14 @@
+RE8CH Advanced Fabric {{ .Chart.Version }} is installed in observe-only mode by default.
+
+Release compatibility: upgrade the existing release name `re8ch-network-fabric`.
+No FRR, nftables, policy-rule, ASN or neighbor mutation is enabled unless both:
+
+  advancedFabric.mode=guarded-apply
+  advancedFabric.applyEnabled=true
+
+Inspect status:
+
+  kubectl get advancedfabric advanced-fabric -o yaml
+  kubectl get trafficpolicies.networking.re8ch.com -A
+  kubectl -n kube-system get pods -l app.kubernetes.io/part-of=re8ch-advanced-fabric
+
