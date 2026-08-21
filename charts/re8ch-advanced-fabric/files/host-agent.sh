@@ -3,10 +3,7 @@ set -eu
 
 NODE_FILE="/desired/${NODE_NAME}.json"
 READY=/run/advanced-fabric-ready
-STATUS_CM="advanced-fabric-node-$(printf '%s' "${NODE_NAME}" | tr '[:upper:]_.' '[:lower:]---')"
-TOKEN_FILE=/var/run/secrets/kubernetes.io/serviceaccount/token
-CA_FILE=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-API="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT_HTTPS}"
+STATUS_FILE=/status/status.json
 rm -f "${READY}"
 
 host() { nsenter -t 1 -n chroot /host "$@"; }
@@ -36,21 +33,8 @@ publish_status() {
     '{schemaVersion:"networking.re8ch.com/v1alpha1",node:$node,observedAt:$observedAt,
       datapath:{mode:$datapath,tunnelInterfaces:$tunnels},frr:{state:$frr,bgp:$bgp,bfd:$bfd},
       ecmpRoutes:$ecmp,peerRoutes:$peers,pathRankings:$rankings}')
-  object=$(jq -cn --arg name "$STATUS_CM" --arg status "$status" \
-    '{apiVersion:"v1",kind:"ConfigMap",metadata:{name:$name,namespace:"kube-system",labels:{
-      "app.kubernetes.io/name":"re8ch-advanced-fabric","app.kubernetes.io/component":"node-status",
-      "networking.re8ch.com/node-status":"true"}},data:{"status.json":$status}}')
-  code=$(curl -sS --cacert "$CA_FILE" -H "Authorization: Bearer $(cat "$TOKEN_FILE")" \
-    -H 'Content-Type: application/merge-patch+json' -o /tmp/advanced-fabric-api.out -w '%{http_code}' \
-    -X PATCH "${API}/api/v1/namespaces/kube-system/configmaps/${STATUS_CM}" -d "$object" || true)
-  if [ "$code" = 404 ]; then
-    curl -fsS --cacert "$CA_FILE" -H "Authorization: Bearer $(cat "$TOKEN_FILE")" \
-      -H 'Content-Type: application/json' -X POST "${API}/api/v1/namespaces/kube-system/configmaps" \
-      -d "$object" >/dev/null
-  elif [ "$code" != 200 ]; then
-    echo "${NODE_NAME}: status publication failed (HTTP ${code})" >&2
-    return 1
-  fi
+  printf '%s\n' "$status" >"${STATUS_FILE}.tmp"
+  mv "${STATUS_FILE}.tmp" "${STATUS_FILE}"
 }
 
 while [ ! -s "${NODE_FILE}" ]; do sleep 2; done
@@ -64,17 +48,10 @@ if jq -e '.applyEnabled == true' "${NODE_FILE}" >/dev/null; then
   exit 1
 fi
 
-host systemctl is-active --quiet frr
-host vtysh -c 'show bgp ipv4 unicast summary' >/dev/null
 publish_status
 touch "${READY}"
 echo "${NODE_NAME}: Advanced Fabric observe-only host validation ready"
 while sleep 30; do
-  if host systemctl is-active --quiet frr; then
-    publish_status || true
-    touch "${READY}"
-  else
-    rm -f "${READY}"
-    publish_status || true
-  fi
+  publish_status || true
+  touch "${READY}"
 done

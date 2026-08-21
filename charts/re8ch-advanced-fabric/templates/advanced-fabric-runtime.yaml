@@ -35,6 +35,8 @@ data:
 {{ .Files.Get "files/controller.py" | indent 4 }}
   host-agent.sh: |
 {{ .Files.Get "files/host-agent.sh" | indent 4 }}
+  status-publisher.py: |
+{{ .Files.Get "files/status-publisher.py" | indent 4 }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -90,8 +92,19 @@ spec:
             - {name: runtime, mountPath: /runtime, readOnly: true}
             - {name: desired, mountPath: /desired, readOnly: true}
             - {name: host, mountPath: /host}
+            - {name: status, mountPath: /status}
+        - name: publisher
+          image: python:3.13-alpine@sha256:540c7d91f98ff6880174c40e99067bf5941eb54d818a7a5e094d188b196a934d
+          command: [python3, /runtime/status-publisher.py]
+          env: [{name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}]
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true}
+          resources: {requests: {cpu: 5m, memory: 12Mi}, limits: {cpu: 50m, memory: 32Mi}}
+          volumeMounts:
+            - {name: runtime, mountPath: /runtime, readOnly: true}
+            - {name: status, mountPath: /status, readOnly: true}
       volumes:
         - {name: runtime, configMap: {name: re8ch-advanced-fabric-runtime, defaultMode: 365}}
         - {name: desired, configMap: {name: advanced-fabric-desired, optional: true}}
         - {name: host, hostPath: {path: /, type: Directory}}
+        - {name: status, emptyDir: {}}
 {{- end }}
