@@ -24,7 +24,7 @@ def request(method, path, body=None):
     data = json.dumps(body).encode() if body is not None else None
     headers = {"Authorization": f"Bearer {TOKEN}", "Accept": "application/json"}
     if data is not None:
-        headers["Content-Type"] = "application/merge-patch+json"
+        headers["Content-Type"] = "application/merge-patch+json" if method == "PATCH" else "application/json"
     req = urllib.request.Request(BASE + path, data=data, headers=headers, method=method)
     with urllib.request.urlopen(req, context=CONTEXT, timeout=15) as response:
         return json.load(response)
@@ -153,5 +153,6 @@ while True:
     try:
         reconcile()
     except Exception as exc:
-        print(json.dumps({"event": "advanced-fabric-reconcile-error", "error": str(exc)}), flush=True)
+        print(json.dumps({"event": "advanced-fabric-reconcile-error", "error": str(exc),
+                          "url": getattr(exc, "url", None), "code": getattr(exc, "code", None)}), flush=True)
     time.sleep(30)
