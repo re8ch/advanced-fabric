@@ -1,0 +1,67 @@
+fabric:
+  enabled: false
+stage: 0
+pool:
+  name: network-service-vip
+  cidr: ""
+  enabled: false
+canary:
+  enabled: false
+  namespace: kube-system
+  address: ""
+advertisement:
+  labels:
+    network-fabric.example/lb-pool: service-vip
+    network-fabric.example/bgp-advertise: enabled
+peer:
+  timers: {connectRetry: 3, hold: 9, keepAlive: 3}
+  gracefulRestartSeconds: 30
+nodes: {}
+advancedFabric:
+  enabled: false
+  mode: observe-only
+  applyEnabled: false
+  observeDays: 7
+  emergencyDisable: false
+  timezone: Asia/Shanghai
+  nativeRoutingCIDR: 10.42.0.0/16
+  acceleratedCIDR: 10.250.0.0/24
+  serviceCIDR: 10.251.0.0/24
+  weightedEcmp:
+    enabled: false
+  controller:
+    nodeSelector: {}
+  policyRouting:
+    tables: {fastest: 201, balanced: 202, greedy: 203}
+    marks: {fastest: 42241, balanced: 42242, greedy: 42243}
+  nodes: []
+# Optional regional egress. This does not proxy cluster, Ceph, etcd or private
+# traffic. Supply an existing Secret containing paths.yaml with encrypted
+# proxy-provider transports; the chart never packages provider credentials.
+mihomoGateway:
+  enabled: false
+  image:
+    repository: metacubex/mihomo
+    tag: v1.19.29
+    pullPolicy: IfNotPresent
+  capabilityLabel: networking.re8ch.com/mihomo-node
+  capabilityValue: enabled
+  existingPathsSecret: ""
+  service:
+    type: ClusterIP
+    requestedLoadBalancerIP: ""
+    externalTrafficPolicy: Local
+    advertise: false
+  controller:
+    enabled: true
+  rules:
+    overseasDomains:
+      - github.com
+      - githubusercontent.com
+      - ghcr.io
+      - quay.io
+      - registry.k8s.io
+      - pkg.dev
+      - docker.io
+      - docker.com
+      - amazonaws.com

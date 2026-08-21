@@ -1,0 +1,96 @@
+{{- if .Values.advancedFabric.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: re8ch-advanced-fabric, namespace: kube-system}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: re8ch-advanced-fabric}
+rules:
+  - apiGroups: [""]
+    resources: [nodes, pods]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, create, patch, update]
+  - apiGroups: [networking.re8ch.com]
+    resources: [advancedfabrics, trafficpolicies]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.re8ch.com]
+    resources: [advancedfabrics/status, trafficpolicies/status]
+    verbs: [get, patch, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: re8ch-advanced-fabric}
+subjects:
+  - {kind: ServiceAccount, name: re8ch-advanced-fabric, namespace: kube-system}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: re8ch-advanced-fabric}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: re8ch-advanced-fabric-runtime, namespace: kube-system}
+data:
+  controller.py: |
+{{ .Files.Get "files/controller.py" | indent 4 }}
+  host-agent.sh: |
+{{ .Files.Get "files/host-agent.sh" | indent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: re8ch-advanced-fabric-controller
+  namespace: kube-system
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app.kubernetes.io/name: re8ch-advanced-fabric-controller}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: re8ch-advanced-fabric-controller}}
+    spec:
+      serviceAccountName: re8ch-advanced-fabric
+      priorityClassName: system-cluster-critical
+{{- with .Values.advancedFabric.controller.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | indent 8 }}
+{{- end }}
+      containers:
+        - name: controller
+          image: python:3.13-alpine@sha256:540c7d91f98ff6880174c40e99067bf5941eb54d818a7a5e094d188b196a934d
+          command: [python3, /runtime/controller.py]
+          env:
+            - {name: ADVISOR_URL, value: "http://re8ch-routing-advisor.qianwen-ops.svc.cluster.local:9790"}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true}
+          resources: {requests: {cpu: 20m, memory: 32Mi}, limits: {cpu: 250m, memory: 128Mi}}
+          volumeMounts: [{name: runtime, mountPath: /runtime, readOnly: true}, {name: tmp, mountPath: /tmp}]
+      volumes: [{name: runtime, configMap: {name: re8ch-advanced-fabric-runtime, defaultMode: 365}}, {name: tmp, emptyDir: {}}]
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata: {name: re8ch-advanced-fabric-agent, namespace: kube-system}
+spec:
+  updateStrategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 1}}
+  selector: {matchLabels: {app.kubernetes.io/name: re8ch-advanced-fabric-agent}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: re8ch-advanced-fabric-agent}}
+    spec:
+      hostPID: true
+      hostNetwork: true
+      priorityClassName: system-node-critical
+      tolerations: [{operator: Exists}]
+      containers:
+        - name: agent
+          image: quay.io/cilium/cilium-ci:latest@sha256:19ff540fa2927047d4935d5c1b173818225cc288c20a55d0bdb8748ea8adbb26
+          command: [/bin/sh, /runtime/host-agent.sh]
+          env: [{name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}]
+          securityContext: {privileged: true}
+          readinessProbe: {exec: {command: [/usr/bin/test, -f, /run/advanced-fabric-ready]}, periodSeconds: 10}
+          volumeMounts:
+            - {name: runtime, mountPath: /runtime, readOnly: true}
+            - {name: desired, mountPath: /desired, readOnly: true}
+            - {name: host, mountPath: /host}
+      volumes:
+        - {name: runtime, configMap: {name: re8ch-advanced-fabric-runtime, defaultMode: 365}}
+        - {name: desired, configMap: {name: advanced-fabric-desired, optional: true}}
+        - {name: host, hostPath: {path: /, type: Directory}}
+{{- end }}

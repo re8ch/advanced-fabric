@@ -1,0 +1,29 @@
+name: Publish Helm OCI chart
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Validate chart version
+        run: test "v$(helm show chart charts/re8ch-advanced-fabric | awk '/^version:/{print $2}')" = "$GITHUB_REF_NAME"
+      - run: helm lint charts/re8ch-advanced-fabric
+      - run: helm package charts/re8ch-advanced-fabric --destination dist
+      - name: Login to GHCR
+        run: echo "$GITHUB_TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: helm push dist/re8ch-advanced-fabric-*.tgz oci://ghcr.io/re8ch/charts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/re8ch-advanced-fabric-*.tgz
+

@@ -1,0 +1,102 @@
+{{- if .Values.fabric.enabled }}
+{{- $labels := .Values.advertisement.labels }}
+apiVersion: cilium.io/v2
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: {{ .Values.pool.name }}
+  labels:
+    networking.re8ch.com/stage: {{ .Values.stage | quote }}
+spec:
+  disabled: {{ not .Values.pool.enabled }}
+  allowFirstLastIPs: "No"
+  blocks:
+    - cidr: {{ .Values.pool.cidr }}
+  serviceSelector:
+    matchLabels:
+{{ toYaml $labels | indent 6 }}
+---
+apiVersion: cilium.io/v2
+kind: CiliumBGPAdvertisement
+metadata:
+  name: re8ch-service-vip
+  labels:
+    networking.re8ch.com/advertisement: service-vip
+spec:
+  advertisements:
+    - advertisementType: Service
+      service:
+        addresses: [LoadBalancerIP]
+      selector:
+        matchLabels:
+{{ toYaml $labels | indent 10 }}
+---
+apiVersion: cilium.io/v2
+kind: CiliumBGPPeerConfig
+metadata:
+  name: re8ch-service-vip-frr
+spec:
+  timers:
+    connectRetryTimeSeconds: {{ .Values.peer.timers.connectRetry }}
+    holdTimeSeconds: {{ .Values.peer.timers.hold }}
+    keepAliveTimeSeconds: {{ .Values.peer.timers.keepAlive }}
+  gracefulRestart:
+    enabled: true
+    restartTimeSeconds: {{ .Values.peer.gracefulRestartSeconds }}
+  families:
+    - afi: ipv4
+      safi: unicast
+      advertisements:
+        matchLabels: {networking.re8ch.com/advertisement: service-vip}
+{{- range $name, $node := .Values.nodes }}
+---
+apiVersion: cilium.io/v2
+kind: CiliumBGPClusterConfig
+metadata:
+  name: re8ch-service-vip-{{ $name }}
+spec:
+  nodeSelector:
+    matchLabels: {kubernetes.io/hostname: {{ $node.hostname }}}
+  bgpInstances:
+    - name: service-vip
+      localASN: {{ $node.localASN }}
+      peers:
+{{- range $node.peers }}
+        - name: {{ .name }}
+          peerASN: {{ .asn }}
+          peerAddress: {{ .address }}
+          peerConfigRef: {name: re8ch-service-vip-frr}
+{{- end }}
+---
+apiVersion: cilium.io/v2
+kind: CiliumBGPNodeConfigOverride
+metadata: {name: {{ $node.hostname }}}
+spec:
+  bgpInstances:
+    - name: service-vip
+      routerID: {{ $node.routerID }}
+      peers:
+{{- range $node.peers }}
+        - name: {{ .name }}
+          localAddress: {{ $node.localAddress }}
+{{- end }}
+{{- end }}
+{{- if .Values.canary.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: re8ch-cilium-lb-canary
+  namespace: {{ .Values.canary.namespace }}
+  labels:
+{{ toYaml $labels | indent 4 }}
+  annotations:
+    lbipam.cilium.io/ips: {{ .Values.canary.address | quote }}
+spec:
+  type: LoadBalancer
+  loadBalancerClass: io.cilium/bgp-control-plane
+  externalTrafficPolicy: Local
+  selector: {k8s-app: cilium}
+  ports:
+    - {name: cilium-health, port: 4240, targetPort: 4240, protocol: TCP}
+{{- end }}
+{{- end }}

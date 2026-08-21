@@ -1,0 +1,119 @@
+{{- if .Values.mihomoGateway.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-mihomo
+  namespace: {{ .Release.Namespace }}
+data:
+  config.yaml: |
+    mixed-port: 7890
+    allow-lan: true
+    bind-address: "0.0.0.0"
+    mode: rule
+    log-level: warning
+    ipv6: false
+    external-controller: 0.0.0.0:9090
+    unified-delay: true
+    tcp-concurrent: true
+    proxy-providers:
+      regional-paths:
+        type: file
+        path: /etc/mihomo/paths.yaml
+        health-check: {enable: true, url: https://www.gstatic.com/generate_204, interval: 30, timeout: 5000}
+    proxy-groups:
+      - name: regional-egress
+        type: fallback
+        use: [regional-paths]
+        url: https://www.gstatic.com/generate_204
+        interval: 30
+        timeout: 5000
+    rules:
+      - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+      - IP-CIDR,100.64.0.0/10,DIRECT,no-resolve
+      - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
+      - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
+{{- range .Values.mihomoGateway.rules.overseasDomains }}
+      - DOMAIN-SUFFIX,{{ . }},regional-egress
+{{- end }}
+      - MATCH,DIRECT
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ .Release.Name }}-mihomo
+  namespace: {{ .Release.Namespace }}
+spec:
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels: {app.kubernetes.io/name: re8ch-mihomo, app.kubernetes.io/instance: {{ .Release.Name }}}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: re8ch-mihomo, app.kubernetes.io/instance: {{ .Release.Name }}}
+    spec:
+      automountServiceAccountToken: false
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: {{ .Values.mihomoGateway.capabilityLabel }}
+                    operator: In
+                    values: [{{ .Values.mihomoGateway.capabilityValue | quote }}]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: mihomo
+          image: "{{ .Values.mihomoGateway.image.repository }}:{{ .Values.mihomoGateway.image.tag }}"
+          imagePullPolicy: {{ .Values.mihomoGateway.image.pullPolicy }}
+          args: [-d, /etc/mihomo]
+          ports:
+            - {name: mixed, containerPort: 7890, protocol: TCP}
+            - {name: controller, containerPort: 9090, protocol: TCP}
+          startupProbe: {httpGet: {path: /version, port: controller}, periodSeconds: 5, failureThreshold: 60}
+          readinessProbe: {httpGet: {path: /version, port: controller}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /version, port: controller}, periodSeconds: 15}
+          resources:
+            requests: {cpu: 25m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 384Mi}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: work, mountPath: /etc/mihomo}
+            - {name: config, mountPath: /etc/mihomo/config.yaml, subPath: config.yaml, readOnly: true}
+            - {name: paths, mountPath: /etc/mihomo/paths.yaml, subPath: paths.yaml, readOnly: true}
+      volumes:
+        - name: config
+          configMap: {name: {{ .Release.Name }}-mihomo}
+        - name: paths
+          secret: {secretName: {{ required "mihomoGateway.existingPathsSecret is required" .Values.mihomoGateway.existingPathsSecret }}}
+        - name: work
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-mihomo
+  namespace: {{ .Release.Namespace }}
+{{- if .Values.mihomoGateway.service.advertise }}
+  labels:
+{{ toYaml .Values.advertisement.labels | indent 4 }}
+{{- end }}
+{{- if .Values.mihomoGateway.service.requestedLoadBalancerIP }}
+  annotations:
+    lbipam.cilium.io/ips: {{ .Values.mihomoGateway.service.requestedLoadBalancerIP | quote }}
+{{- end }}
+spec:
+  type: {{ .Values.mihomoGateway.service.type }}
+{{- if eq .Values.mihomoGateway.service.type "LoadBalancer" }}
+  loadBalancerClass: io.cilium/bgp-control-plane
+  externalTrafficPolicy: {{ .Values.mihomoGateway.service.externalTrafficPolicy }}
+{{- end }}
+  selector: {app.kubernetes.io/name: re8ch-mihomo, app.kubernetes.io/instance: {{ .Release.Name }}}
+  ports:
+    - {name: mixed, port: 7890, targetPort: mixed, protocol: TCP}
+{{- end }}

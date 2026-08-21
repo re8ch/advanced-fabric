@@ -1,0 +1,57 @@
+apiVersion: v2
+name: re8ch-advanced-fabric
+description: RE8CH native-routing, FRR spine/leaf fabric, service VIPs, and network economics
+type: application
+version: 0.3.0
+appVersion: "0.3.0"
+kubeVersion: ">=1.30.0-0"
+home: https://github.com/re8ch/advanced-fabric
+sources:
+  - https://github.com/re8ch/advanced-fabric
+maintainers:
+  - name: RE8CH
+    url: https://github.com/re8ch
+keywords: [cilium, bgp, frr, ecmp, k3s, multi-region, networking]
+annotations:
+  networking.re8ch.com/scope: advanced-fabric
+  networking.re8ch.com/compatible-release: re8ch-network-fabric
+  artifacthub.io/license: MIT
+  artifacthub.io/category: networking
+  artifacthub.io/operator: "true"
+  artifacthub.io/operatorCapabilities: deep insights
+  artifacthub.io/containsSecurityUpdates: "false"
+  artifacthub.io/changes: |
+    - kind: added
+      description: Seven-spine A/B/C inventory and deny-by-default FRR policy model.
+    - kind: added
+      description: Observe-only TrafficPolicy economics controller and host validation agent.
+    - kind: changed
+      description: Native routing is standardized on 10.42.0.0/16 with cross-WAN direct-node routes disabled.
+    - kind: changed
+      description: The canonical private image registry endpoint is registry.re8ch.com on HTTPS port 443.
+  artifacthub.io/crds: |
+    - kind: AdvancedFabric
+      version: v1alpha1
+      name: advancedfabrics.networking.re8ch.com
+      displayName: Advanced Fabric inventory
+      description: Static spine/leaf authority, capacity and failure-domain inventory.
+    - kind: TrafficPolicy
+      version: v1alpha1
+      name: trafficpolicies.networking.re8ch.com
+      displayName: Traffic Policy
+      description: Namespace-scoped fastest, balanced or greedy egress intent.
+  artifacthub.io/links: |
+    - name: source
+      url: https://github.com/re8ch/advanced-fabric
+    - name: support
+      url: https://github.com/re8ch/advanced-fabric/issues
+  artifacthub.io/images: |
+    - name: controller
+      image: python:3.13-alpine@sha256:540c7d91f98ff6880174c40e99067bf5941eb54d818a7a5e094d188b196a934d
+      platforms:
+        - linux/amd64
+        - linux/arm64
+    - name: host-agent
+      image: quay.io/cilium/cilium-ci:latest@sha256:19ff540fa2927047d4935d5c1b173818225cc288c20a55d0bdb8748ea8adbb26
+      platforms:
+        - linux/amd64
