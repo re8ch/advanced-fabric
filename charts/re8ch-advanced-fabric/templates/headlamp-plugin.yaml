@@ -1,0 +1,36 @@
+{{- if .Values.headlampPlugin.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: advanced-fabric-headlamp-plugin
+  namespace: {{ .Values.headlampPlugin.namespace }}
+data:
+  package.json: |
+{{ .Files.Get "files/headlamp/package.json" | indent 4 }}
+  main.js: |
+{{ .Files.Get "files/headlamp/main.js" | indent 4 }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: advanced-fabric-headlamp-plugin-{{ .Chart.Version | replace "." "-" }}
+  namespace: {{ .Values.headlampPlugin.namespace }}
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: install
+          image: {{ .Values.headlampPlugin.installImage | quote }}
+          command: [/bin/sh, -ec]
+          args:
+            - mkdir -p /plugins/advanced-fabric-{{ .Chart.AppVersion }};
+              cp /bundle/main.js /bundle/package.json /plugins/advanced-fabric-{{ .Chart.AppVersion }}/
+          volumeMounts:
+            - {name: bundle, mountPath: /bundle, readOnly: true}
+            - {name: plugins, mountPath: /plugins}
+      volumes:
+        - {name: bundle, configMap: {name: advanced-fabric-headlamp-plugin}}
+        - {name: plugins, persistentVolumeClaim: {claimName: {{ .Values.headlampPlugin.pluginsPVC }}}}
+{{- end }}

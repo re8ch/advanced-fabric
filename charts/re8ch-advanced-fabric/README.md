@@ -8,12 +8,16 @@ Public defaults are safe: runtime components disabled until explicitly enabled,
 observe-only mode, no node inventory or credentials, no topology-authority
 mutations, and weighted ECMP disabled.
 
+The optional Headlamp plugin presents live per-node datapath mode, tunnel
+interfaces, FRR/BGP/BFD health and kernel ECMP routes. Enable it with
+`headlampPlugin.enabled=true` when Headlamp uses a shared plugins PVC.
+
 ## Install
 
 ```sh
 helm upgrade --install re8ch-network-fabric \
   oci://ghcr.io/re8ch/charts/re8ch-advanced-fabric \
-  --version 0.3.0 \
+  --version 0.4.0 \
   --namespace advanced-fabric --create-namespace
 ```
 

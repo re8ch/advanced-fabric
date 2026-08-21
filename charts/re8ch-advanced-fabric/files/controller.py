@@ -125,6 +125,8 @@ def reconcile():
         "data": {name + ".json": json.dumps({"node": name, "mode": spec["mode"],
                   "applyEnabled": bool(spec.get("applyEnabled")) and not bool(spec.get("emergencyDisable")),
                   "podProfiles": profiles, "pathRankings": rankings.get(name, {}),
+                  "peers": [{key: peer.get(key) for key in ("name", "internalIP", "acceleratedIP", "podCIDR", "role", "class")}
+                            for peer in spec["nodes"] if peer.get("name") != name],
                   "weightedEcmp": bool(spec.get("weightedEcmp", {}).get("enabled"))}, sort_keys=True)
                  for name, profiles in resolved.items()}}
     try:

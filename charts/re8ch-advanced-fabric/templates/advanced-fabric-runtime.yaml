@@ -74,6 +74,7 @@ spec:
   template:
     metadata: {labels: {app.kubernetes.io/name: re8ch-advanced-fabric-agent}}
     spec:
+      serviceAccountName: re8ch-advanced-fabric
       hostPID: true
       hostNetwork: true
       priorityClassName: system-node-critical

@@ -1,0 +1,6 @@
+{
+  "name": "advanced-fabric",
+  "version": "0.4.0",
+  "description": "Advanced Fabric node routing, FRR and ECMP status for Headlamp",
+  "main": "main.js"
+}

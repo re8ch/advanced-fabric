@@ -35,6 +35,11 @@ advancedFabric:
     tables: {fastest: 201, balanced: 202, greedy: 203}
     marks: {fastest: 42241, balanced: 42242, greedy: 42243}
   nodes: []
+headlampPlugin:
+  enabled: false
+  namespace: headlamp
+  pluginsPVC: headlamp-plugins
+  installImage: registry.k8s.io/busybox:1.36.1
 # Optional regional egress. This does not proxy cluster, Ceph, etcd or private
 # traffic. Supply an existing Secret containing paths.yaml with encrypted
 # proxy-provider transports; the chart never packages provider credentials.
