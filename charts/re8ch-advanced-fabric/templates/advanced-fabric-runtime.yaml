@@ -64,6 +64,8 @@ spec:
           image: python:3.13-alpine@sha256:540c7d91f98ff6880174c40e99067bf5941eb54d818a7a5e094d188b196a934d
           command: [python3, /runtime/controller.py]
           env:
+            - {name: API_HOST, value: "10.250.0.1"}
+            - {name: API_PORT, value: "6443"}
             - {name: ADVISOR_URL, value: "http://re8ch-routing-advisor.qianwen-ops.svc.cluster.local:9790"}
           securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true}
           resources: {requests: {cpu: 20m, memory: 32Mi}, limits: {cpu: 250m, memory: 128Mi}}
