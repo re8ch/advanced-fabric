@@ -32,7 +32,7 @@ spec:
                     vip: {type: string, pattern: '^$|^10\.250\.0\.[0-9]{1,3}/32$'}
                     port: {type: integer, enum: [6443]}
                     mode: {type: string, enum: [healthy-ecmp]}
-                    eligibleNodes: {type: array, uniqueItems: true, items: {type: string}}
+                    eligibleNodes: {type: array, items: {type: string}}
                     primaryTransport: {type: string, enum: [wireguard]}
                     fallbackTransport: {type: string, enum: [zerotier]}
                     healthCheck: {type: object, x-kubernetes-preserve-unknown-fields: true}
