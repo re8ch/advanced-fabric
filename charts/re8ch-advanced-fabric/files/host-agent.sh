@@ -82,7 +82,16 @@ manage_wireguard_allowed_ips() {
   transaction | jq -r '.wireguardInterfaces[]?' | while read -r iface; do
     peers=$(host wg show "${iface}" peers); [ "$(printf '%s\n' "${peers}" | sed '/^$/d' | wc -l)" -eq 1 ]
     transaction | jq -r '.wireguardAllowedPrefixes[]?' | while read -r allowed; do
-      prefix=+${allowed}; [ "${action}" = apply ] || prefix=-${allowed}; host wg set "${iface}" peer "${peers}" allowed-ips "${prefix}"
+      current=$(host wg show "${iface}" allowed-ips | awk -v peer="${peers}" '$1 == peer {$1=""; sub(/^[[:space:]]+/, ""); print}')
+      updated=""; found=false
+      for prefix in ${current}; do
+        [ "${prefix}" = "${allowed}" ] && found=true
+        [ "${action}" = remove ] && [ "${prefix}" = "${allowed}" ] && continue
+        updated="${updated}${updated:+ }${prefix}"
+      done
+      [ "${action}" = apply ] && [ "${found}" = false ] && updated="${updated}${updated:+ }${allowed}"
+      [ -n "${updated}" ] || continue
+      host wg set "${iface}" peer "${peers}" allowed-ips "$(printf '%s' "${updated}" | tr ' ' ',')"
     done
   done
 }
