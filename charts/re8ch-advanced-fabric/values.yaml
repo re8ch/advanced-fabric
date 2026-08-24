@@ -27,6 +27,22 @@ advancedFabric:
   nativeRoutingCIDR: 10.42.0.0/16
   acceleratedCIDR: 10.250.0.0/24
   serviceCIDR: 10.251.0.0/24
+  controlPlaneApi:
+    enabled: false
+    vip: ""
+    port: 6443
+    mode: healthy-ecmp
+    eligibleNodes: []
+    primaryTransport: wireguard
+    fallbackTransport: zerotier
+    healthCheck:
+      address: 127.0.0.1
+      path: /readyz
+      intervalSeconds: 5
+      timeoutSeconds: 2
+      successThreshold: 3
+      failureThreshold: 3
+      withdrawDelaySeconds: 0
   weightedEcmp:
     enabled: false
   controller:

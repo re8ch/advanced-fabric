@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0
+
+- Adds an observe-first `controlPlaneApi` contract for an exact accelerated
+  `/32`, health-eligible ECMP origins, WireGuard primary transport and
+  ZeroTier fallback transport.
+- Publishes per-node local API readiness without changing FRR, loopback
+  addresses, K3s identity or etcd membership.
+
 ## 0.3.0
 
 - Adds the authoritative seven-spine A/B/C inventory and deterministic private ASNs.
@@ -10,4 +18,3 @@
   remains disabled until a separate acceptance gate passes.
 - Standardizes the Harbor/OCI endpoint as `https://registry.re8ch.com` on port
   443. No third-party mirror credentials are packaged.
-
