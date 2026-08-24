@@ -12,8 +12,8 @@ import urllib.request
 import math
 
 
-HOST = os.environ.get("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
-PORT = os.environ.get("KUBERNETES_SERVICE_PORT_HTTPS", "443")
+HOST = os.environ.get("API_HOST", os.environ.get("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc"))
+PORT = os.environ.get("API_PORT", os.environ.get("KUBERNETES_SERVICE_PORT_HTTPS", "443"))
 BASE = f"https://{HOST}:{PORT}"
 TOKEN = open("/var/run/secrets/kubernetes.io/serviceaccount/token", encoding="utf-8").read().strip()
 CA = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
