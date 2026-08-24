@@ -95,6 +95,40 @@ manage_wireguard_allowed_ips() {
     done
   done
 }
+manage_wireguard_peer_policies() {
+  action=$1
+  transaction | jq -c '.wireguardPeerPolicies[]?' | while read -r policy; do
+    iface=$(printf '%s' "${policy}" | jq -r '.interface'); peer=$(printf '%s' "${policy}" | jq -r '.peer')
+    host wg show "${iface}" peers | grep -Fxq "${peer}"
+    printf '%s' "${policy}" | jq -r '.allowedPrefixes[]?' | while read -r allowed; do
+      current=$(host wg show "${iface}" allowed-ips | awk -v peer="${peer}" '$1 == peer {$1=""; sub(/^[[:space:]]+/, ""); print}')
+      updated=""; found=false
+      for prefix in ${current}; do [ "${prefix}" = "${allowed}" ] && found=true; [ "${action}" = remove ] && [ "${prefix}" = "${allowed}" ] && continue; updated="${updated}${updated:+ }${prefix}"; done
+      [ "${action}" = apply ] && [ "${found}" = false ] && updated="${updated}${updated:+ }${allowed}"
+      [ -n "${updated}" ] || continue
+      host wg set "${iface}" peer "${peer}" allowed-ips "$(printf '%s' "${updated}" | tr ' ' ',')"
+    done
+  done
+}
+manage_frr_transit_prefixes() {
+  action=$1; asn=$(transaction | jq -r '.localAsn')
+  transaction | jq -c '.frrPrefixEntries[]?' | while read -r entry; do
+    list=$(printf '%s' "${entry}" | jq -r '.list'); sequence=$(printf '%s' "${entry}" | jq -r '.sequence'); prefix=$(printf '%s' "${entry}" | jq -r '.prefix')
+    if [ "${action}" = apply ]; then command="ip prefix-list ${list} seq ${sequence} permit ${prefix}"; else command="no ip prefix-list ${list} seq ${sequence}"; fi
+    host vtysh -c 'configure terminal' -c "${command}" -c end >/dev/null
+  done
+  transaction | jq -r '.frrNetworks[]?' | while read -r prefix; do
+    if [ "${action}" = apply ]; then command="network ${prefix}"; else command="no network ${prefix}"; fi
+    host vtysh -c 'configure terminal' -c "router bgp ${asn}" -c 'address-family ipv4 unicast' -c "${command}" -c end >/dev/null
+  done
+}
+manage_forward_rules() {
+  action=$1
+  transaction | jq -c '.forwardRules[]?' | while read -r rule; do
+    inif=$(printf '%s' "${rule}" | jq -r '.inInterface'); outif=$(printf '%s' "${rule}" | jq -r '.outInterface'); source=$(printf '%s' "${rule}" | jq -r '.source'); destination=$(printf '%s' "${rule}" | jq -r '.destination'); protocol=$(printf '%s' "${rule}" | jq -r '.protocol'); port=$(printf '%s' "${rule}" | jq -r '.port')
+    if [ "${action}" = apply ]; then host iptables -C FORWARD -i "${inif}" -o "${outif}" -s "${source}" -d "${destination}" -p "${protocol}" --dport "${port}" -j ACCEPT 2>/dev/null || host iptables -I FORWARD 1 -i "${inif}" -o "${outif}" -s "${source}" -d "${destination}" -p "${protocol}" --dport "${port}" -j ACCEPT; else host iptables -D FORWARD -i "${inif}" -o "${outif}" -s "${source}" -d "${destination}" -p "${protocol}" --dport "${port}" -j ACCEPT 2>/dev/null || true; fi
+  done
+}
 manage_frr_import_prefixes() {
   vip=$(transaction | jq -r '.vip')
   transaction | jq -r '.frrImportPrefixLists[]?' | while read -r list; do
@@ -147,9 +181,9 @@ successes=0; failures=0; announced=false
 while :; do
   apply=$(jq -r '.mode == "guarded-apply" and .applyEnabled == true' "${NODE_FILE}"); guarded=$(transaction | jq -r '.guarded')
   if [ "${apply}" != true ]; then
-    withdraw_vip; manage_wireguard_allowed_ips remove; manage_fallback_routes remove; successes=0; failures=0; announced=false
+    withdraw_vip; manage_wireguard_allowed_ips remove; manage_wireguard_peer_policies remove; manage_frr_transit_prefixes remove; manage_forward_rules remove; manage_fallback_routes remove; successes=0; failures=0; announced=false
   else
-    manage_fallback_routes apply; manage_wireguard_allowed_ips apply; manage_frr_import_prefixes; manage_frr_neighbor_policies
+    manage_fallback_routes apply; manage_wireguard_allowed_ips apply; manage_wireguard_peer_policies apply; manage_frr_transit_prefixes apply; manage_forward_rules apply; manage_frr_import_prefixes; manage_frr_neighbor_policies
     if [ "${guarded}" != true ]; then withdraw_vip; successes=0; failures=0; announced=false
     elif api_healthy; then
       successes=$((successes + 1)); failures=0; threshold=$(jq -r '.controlPlaneApi.healthCheck.successThreshold' "${NODE_FILE}")
