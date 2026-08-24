@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+trap 'rc=$?; [ "$rc" -eq 0 ] || echo "advanced-fabric-agent: node=${NODE_NAME:-unknown} exit=${rc} line=${LINENO:-unknown}" >&2' EXIT
 
 NODE_FILE="/desired/${NODE_NAME}.json"
 READY=/run/advanced-fabric-ready
@@ -77,10 +78,12 @@ manage_fallback_routes() {
   done
 }
 manage_wireguard_allowed_ips() {
-  action=$1; vip=$(transaction | jq -r '.vip')
+  action=$1
   transaction | jq -r '.wireguardInterfaces[]?' | while read -r iface; do
     peers=$(host wg show "${iface}" peers); [ "$(printf '%s\n' "${peers}" | sed '/^$/d' | wc -l)" -eq 1 ]
-    prefix=+${vip}; [ "${action}" = apply ] || prefix=-${vip}; host wg set "${iface}" peer "${peers}" allowed-ips "${prefix}"
+    transaction | jq -r '.wireguardAllowedPrefixes[]?' | while read -r allowed; do
+      prefix=+${allowed}; [ "${action}" = apply ] || prefix=-${allowed}; host wg set "${iface}" peer "${peers}" allowed-ips "${prefix}"
+    done
   done
 }
 frr_vip() {
