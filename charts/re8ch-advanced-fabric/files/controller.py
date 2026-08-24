@@ -96,6 +96,7 @@ def make_api_transaction(node, api, operations, guarded):
         "vipInterface": operations.get("vipInterface", "lo"),
         "localAsn": operations.get("localAsn"),
         "frrExportPrefixLists": operations.get("frrExportPrefixLists", []),
+        "frrImportPrefixLists": operations.get("frrImportPrefixLists", []),
         "frrPrefixSequence": operations.get("frrPrefixSequence", 300),
         "wireguardInterfaces": operations.get("wireguardInterfaces", []),
         "wireguardAllowedPrefixes": operations.get("wireguardAllowedPrefixes", [api.get("vip", "")]),

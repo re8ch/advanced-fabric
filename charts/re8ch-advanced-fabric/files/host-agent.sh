@@ -86,6 +86,14 @@ manage_wireguard_allowed_ips() {
     done
   done
 }
+manage_frr_import_prefixes() {
+  vip=$(transaction | jq -r '.vip')
+  transaction | jq -r '.frrImportPrefixLists[]?' | while read -r list; do
+    host vtysh -c 'show running-config' | grep -Fq "ip prefix-list ${list} seq 30 permit ${vip}" && continue
+    host vtysh -c 'configure terminal' -c "ip prefix-list ${list} seq 30 permit ${vip}" -c end >/dev/null
+    host vtysh -c 'clear bgp ipv4 unicast * soft in' >/dev/null
+  done
+}
 frr_vip() {
   action=$1; vip=$(transaction | jq -r '.vip'); asn=$(transaction | jq -r '.localAsn'); sequence=$(transaction | jq -r '.frrPrefixSequence')
   [ "${asn}" != null ] || return 0
@@ -114,7 +122,7 @@ while :; do
   if [ "${apply}" != true ]; then
     withdraw_vip; manage_wireguard_allowed_ips remove; manage_fallback_routes remove; successes=0; failures=0; announced=false
   else
-    manage_fallback_routes apply; manage_wireguard_allowed_ips apply
+    manage_fallback_routes apply; manage_wireguard_allowed_ips apply; manage_frr_import_prefixes
     if [ "${guarded}" != true ]; then withdraw_vip; successes=0; failures=0; announced=false
     elif api_healthy; then
       successes=$((successes + 1)); failures=0; threshold=$(jq -r '.controlPlaneApi.healthCheck.successThreshold' "${NODE_FILE}")
