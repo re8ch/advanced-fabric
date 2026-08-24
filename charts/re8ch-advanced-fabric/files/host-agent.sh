@@ -171,6 +171,15 @@ withdraw_vip() {
   host ip address del "$(transaction | jq -r '.vip')" dev "$(transaction | jq -r '.vipInterface')" 2>/dev/null || true
 }
 announce_vip() { host ip address replace "$(transaction | jq -r '.vip')" dev "$(transaction | jq -r '.vipInterface')"; frr_vip apply; }
+vip_announced() {
+  vip=$(transaction | jq -r '.vip'); iface=$(transaction | jq -r '.vipInterface'); sequence=$(transaction | jq -r '.frrPrefixSequence')
+  host ip -o -4 address show dev "${iface}" | grep -Fq " ${vip} " || return 1
+  running=$(host vtysh -c 'show running-config')
+  printf '%s\n' "${running}" | grep -Fq "network ${vip}" || return 1
+  for list in $(transaction | jq -r '.frrExportPrefixLists[]?'); do
+    printf '%s\n' "${running}" | grep -Fq "ip prefix-list ${list} seq ${sequence} permit ${vip}" || return 1
+  done
+}
 api_healthy() {
   timeout_seconds=$(jq -r '.controlPlaneApi.healthCheck.timeoutSeconds' "${NODE_FILE}")
   host timeout "${timeout_seconds}" k3s kubectl --server=https://127.0.0.1:6443 get --raw=/readyz 2>/dev/null | grep -qx ok
@@ -189,6 +198,10 @@ while :; do
     elif api_healthy; then
       successes=$((successes + 1)); failures=0; threshold=$(jq -r '.controlPlaneApi.healthCheck.successThreshold' "${NODE_FILE}")
       if [ "${announced}" = false ] && [ "${successes}" -ge "${threshold}" ]; then announce_vip; announced=true; fi
+      # The PodCIDR reconciler and an operator may legitimately rewrite FRR.
+      # Treat loopback/network/prefix-list drift as transaction drift and
+      # restore it immediately while the local API remains healthy.
+      if [ "${announced}" = true ] && ! vip_announced; then announce_vip; fi
     else
       failures=$((failures + 1)); successes=0; threshold=$(jq -r '.controlPlaneApi.healthCheck.failureThreshold' "${NODE_FILE}")
       if [ "${announced}" = true ] && [ "${failures}" -ge "${threshold}" ]; then withdraw_vip; announced=false; fi
