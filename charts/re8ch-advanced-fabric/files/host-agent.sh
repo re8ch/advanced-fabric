@@ -131,9 +131,10 @@ manage_forward_rules() {
 }
 manage_frr_import_prefixes() {
   vip=$(transaction | jq -r '.vip')
+  sequence=$(transaction | jq -r '.frrImportPrefixSequence')
   transaction | jq -r '.frrImportPrefixLists[]?' | while read -r list; do
-    host vtysh -c 'show running-config' | grep -Fq "ip prefix-list ${list} seq 30 permit ${vip}" && continue
-    host vtysh -c 'configure terminal' -c "ip prefix-list ${list} seq 30 permit ${vip}" -c end >/dev/null
+    host vtysh -c 'show running-config' | grep -Fq "ip prefix-list ${list} seq ${sequence} permit ${vip}" && continue
+    host vtysh -c 'configure terminal' -c "ip prefix-list ${list} seq ${sequence} permit ${vip}" -c end >/dev/null
     host vtysh -c 'clear bgp ipv4 unicast * soft in' >/dev/null
   done
 }

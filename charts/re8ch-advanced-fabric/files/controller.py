@@ -97,6 +97,7 @@ def make_api_transaction(node, api, operations, guarded):
         "localAsn": operations.get("localAsn"),
         "frrExportPrefixLists": operations.get("frrExportPrefixLists", []),
         "frrImportPrefixLists": operations.get("frrImportPrefixLists", []),
+        "frrImportPrefixSequence": operations.get("frrImportPrefixSequence", 30),
         "frrNeighborPolicies": operations.get("frrNeighborPolicies", []),
         "frrPrefixEntries": operations.get("frrPrefixEntries", []),
         "frrNetworks": operations.get("frrNetworks", []),
