@@ -17,12 +17,24 @@ interfaces, FRR/BGP/BFD health and kernel ECMP routes. Enable it with
 ```sh
 helm upgrade --install re8ch-network-fabric \
   oci://ghcr.io/re8ch/charts/re8ch-advanced-fabric \
-  --version 0.6.1 \
+  --version 0.7.0 \
   --namespace advanced-fabric --create-namespace
 ```
 
 Provide deployment-specific nodes and quotas through a private values file.
 See [`examples/inventory.example.yaml`](examples/inventory.example.yaml).
+
+## Control-plane API observation
+
+`advancedFabric.controlPlaneApi` models a fixed K3s registration `/32` in the
+accelerated host/FRR domain. Eligible nodes probe their local kube-apiserver
+`/readyz`; the controller publishes eligibility and node readiness in desired
+state and CR status. Version 0.7 remains observe-only: it never binds the VIP
+or originates a route without a future checksum-bound guarded transaction.
+
+Only an exact address inside `10.250.0.0/24` is accepted. Kubernetes Service
+VIP space, Node InternalIP space and Pod CIDRs remain under their existing
+authorities.
 
 ## Development
 

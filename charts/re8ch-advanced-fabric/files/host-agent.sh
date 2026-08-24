@@ -31,14 +31,28 @@ publish_status() {
   peers=$(jq -c '.peers // []' "${NODE_FILE}")
   peer_routes=$(printf '%s' "$peers" | jq -c '[.[] | {name, internalIP, acceleratedIP, podCIDR}]')
   rankings=$(jq -c '.pathRankings // {}' "${NODE_FILE}")
+  api_config=$(jq -c '.controlPlaneApi // {enabled:false,eligible:false}' "${NODE_FILE}")
+  api_healthy=false
+  if [ "$(printf '%s' "$api_config" | jq -r '.enabled and .eligible')" = true ]; then
+    api_address=$(printf '%s' "$api_config" | jq -r '.healthCheck.address')
+    api_port=$(printf '%s' "$api_config" | jq -r '.port')
+    api_path=$(printf '%s' "$api_config" | jq -r '.healthCheck.path')
+    api_timeout=$(printf '%s' "$api_config" | jq -r '.healthCheck.timeoutSeconds')
+    if host curl --fail --silent --show-error --max-time "$api_timeout" --insecure \
+      "https://${api_address}:${api_port}${api_path}" >/dev/null 2>&1; then
+      api_healthy=true
+    fi
+  fi
   status=$(jq -cn \
     --arg node "$NODE_NAME" --arg observedAt "$now" --arg datapath "$datapath" \
     --arg frr "$frr_state" --argjson tunnels "$tunnel_interfaces" \
     --argjson bgp "$bgp" --argjson bfd "$bfd" --argjson ecmp "$ecmp" \
     --argjson bgpRib "$bgp_rib" --argjson peers "$peer_routes" --argjson rankings "$rankings" \
+    --argjson controlPlaneApi "$api_config" --argjson controlPlaneApiHealthy "$api_healthy" \
     '{schemaVersion:"networking.re8ch.com/v1alpha1",node:$node,observedAt:$observedAt,
       datapath:{mode:$datapath,tunnelInterfaces:$tunnels},frr:{state:$frr,bgp:$bgp,bfd:$bfd},
-      ecmpRoutes:$ecmp,bgpRib:$bgpRib,peerRoutes:$peers,pathRankings:$rankings}')
+      ecmpRoutes:$ecmp,bgpRib:$bgpRib,peerRoutes:$peers,pathRankings:$rankings,
+      controlPlaneApi:($controlPlaneApi + {localHealthy:$controlPlaneApiHealthy})}')
   printf '%s\n' "$status" >"${STATUS_FILE}.tmp"
   mv "${STATUS_FILE}.tmp" "${STATUS_FILE}"
 }

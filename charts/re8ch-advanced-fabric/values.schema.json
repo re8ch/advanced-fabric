@@ -22,6 +22,32 @@
         "nativeRoutingCIDR": {"type": "string", "const": "10.42.0.0/16"},
         "acceleratedCIDR": {"type": "string", "const": "10.250.0.0/24"},
         "serviceCIDR": {"type": "string", "const": "10.251.0.0/24"},
+        "controlPlaneApi": {
+          "type": "object",
+          "required": ["enabled", "vip", "port", "mode", "eligibleNodes", "primaryTransport", "fallbackTransport", "healthCheck"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "vip": {"type": "string", "pattern": "^$|^10\\.250\\.0\\.[0-9]{1,3}/32$"},
+            "port": {"type": "integer", "const": 6443},
+            "mode": {"const": "healthy-ecmp"},
+            "eligibleNodes": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+            "primaryTransport": {"const": "wireguard"},
+            "fallbackTransport": {"const": "zerotier"},
+            "healthCheck": {
+              "type": "object",
+              "required": ["address", "path", "intervalSeconds", "timeoutSeconds", "successThreshold", "failureThreshold", "withdrawDelaySeconds"],
+              "properties": {
+                "address": {"const": "127.0.0.1"},
+                "path": {"const": "/readyz"},
+                "intervalSeconds": {"type": "integer", "minimum": 2, "maximum": 60},
+                "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 10},
+                "successThreshold": {"type": "integer", "minimum": 1, "maximum": 10},
+                "failureThreshold": {"type": "integer", "minimum": 1, "maximum": 10},
+                "withdrawDelaySeconds": {"type": "integer", "minimum": 0, "maximum": 30}
+              }
+            }
+          }
+        },
         "nodes": {"type": "array", "items": {"type": "object"}}
       }
     },
