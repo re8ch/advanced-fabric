@@ -33,6 +33,8 @@ spec:
                     port: {type: integer, enum: [6443]}
                     mode: {type: string, enum: [healthy-ecmp]}
                     eligibleNodes: {type: array, items: {type: string}}
+                    guardedNodes: {type: array, items: {type: string}}
+                    nodeOperations: {type: array, items: {type: object, x-kubernetes-preserve-unknown-fields: true}}
                     primaryTransport: {type: string, enum: [wireguard]}
                     fallbackTransport: {type: string, enum: [zerotier]}
                     healthCheck: {type: object, x-kubernetes-preserve-unknown-fields: true}
