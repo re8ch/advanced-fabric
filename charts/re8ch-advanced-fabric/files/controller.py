@@ -98,9 +98,13 @@ def make_api_transaction(node, api, operations, guarded):
         "frrExportPrefixLists": operations.get("frrExportPrefixLists", []),
         "frrImportPrefixLists": operations.get("frrImportPrefixLists", []),
         "frrNeighborPolicies": operations.get("frrNeighborPolicies", []),
+        "frrPrefixEntries": operations.get("frrPrefixEntries", []),
+        "frrNetworks": operations.get("frrNetworks", []),
         "frrPrefixSequence": operations.get("frrPrefixSequence", 300),
         "wireguardInterfaces": operations.get("wireguardInterfaces", []),
         "wireguardAllowedPrefixes": operations.get("wireguardAllowedPrefixes", [api.get("vip", "")]),
+        "wireguardPeerPolicies": operations.get("wireguardPeerPolicies", []),
+        "forwardRules": operations.get("forwardRules", []),
         "fallbackRoutes": operations.get("fallbackRoutes", []),
     }
     canonical = json.dumps(spec, sort_keys=True, separators=(",", ":"))
