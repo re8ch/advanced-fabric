@@ -33,6 +33,8 @@ advancedFabric:
     port: 6443
     mode: healthy-ecmp
     eligibleNodes: []
+    guardedNodes: []
+    nodeOperations: []
     primaryTransport: wireguard
     fallbackTransport: zerotier
     healthCheck:

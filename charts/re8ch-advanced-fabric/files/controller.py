@@ -2,6 +2,7 @@
 """Observe-first Kubernetes reconciler for Advanced Fabric."""
 
 import json
+import hashlib
 import os
 import ssl
 import time
@@ -85,6 +86,24 @@ def rank_paths(profile, node, edges, costs, ready):
     return sorted(ranked, key=lambda item: (item["score"], item["peer"]))
 
 
+def make_api_transaction(node, api, operations, guarded):
+    """Build the only host-mutation contract and bind it to a stable digest."""
+    spec = {
+        "version": 1,
+        "node": node,
+        "guarded": bool(guarded),
+        "vip": api.get("vip", ""),
+        "vipInterface": operations.get("vipInterface", "lo"),
+        "localAsn": operations.get("localAsn"),
+        "frrExportPrefixLists": operations.get("frrExportPrefixLists", []),
+        "frrPrefixSequence": operations.get("frrPrefixSequence", 300),
+        "wireguardInterfaces": operations.get("wireguardInterfaces", []),
+        "fallbackRoutes": operations.get("fallbackRoutes", []),
+    }
+    canonical = json.dumps(spec, sort_keys=True, separators=(",", ":"))
+    return {"algorithm": "sha256", "checksum": hashlib.sha256(canonical.encode()).hexdigest(), "spec": spec}
+
+
 def reconcile():
     fabric = request("GET", "/apis/networking.re8ch.com/v1alpha1/advancedfabrics/re8ch")
     spec = fabric["spec"]
@@ -98,9 +117,18 @@ def reconcile():
     node_index = {node["name"]: node for node in spec["nodes"]}
     control_plane_api = spec.get("controlPlaneApi", {"enabled": False})
     eligible_api_nodes = set(control_plane_api.get("eligibleNodes", []))
+    guarded_api_nodes = set(control_plane_api.get("guardedNodes", []))
+    api_operations = {item["name"]: item for item in control_plane_api.get("nodeOperations", [])}
     unknown_api_nodes = sorted(eligible_api_nodes - set(node_index))
     if control_plane_api.get("enabled") and unknown_api_nodes:
         raise ValueError(f"controlPlaneApi references unknown nodes: {','.join(unknown_api_nodes)}")
+    unknown_guarded_nodes = sorted(guarded_api_nodes - eligible_api_nodes)
+    if unknown_guarded_nodes:
+        raise ValueError(f"guardedNodes must be eligible: {','.join(unknown_guarded_nodes)}")
+    api_apply_safe = all(ready.get(name, False) and node_index[name].get("inventoryComplete", False)
+                         for name in guarded_api_nodes)
+    effective_apply = (bool(spec.get("applyEnabled")) and not bool(spec.get("emergencyDisable"))
+                       and api_apply_safe)
     rankings = {name: {profile: rank_paths(profile, node, advisor_edges, advisor_costs, ready)
                 for profile in ("fastest", "balanced", "greedy")} for name, node in node_index.items()}
     resolved = {node["name"]: {"fastest": [], "balanced": [], "greedy": []} for node in spec["nodes"]}
@@ -128,8 +156,10 @@ def reconcile():
         "metadata": {"name": "advanced-fabric-desired", "namespace": "kube-system",
                      "labels": {"app.kubernetes.io/name": "re8ch-advanced-fabric"}},
         "data": {name + ".json": json.dumps({"node": name, "mode": spec["mode"],
-                  "applyEnabled": bool(spec.get("applyEnabled")) and not bool(spec.get("emergencyDisable")),
+                  "applyEnabled": effective_apply,
                   "controlPlaneApi": dict(control_plane_api, eligible=name in eligible_api_nodes),
+                  "transaction": make_api_transaction(name, control_plane_api, api_operations.get(name, {}),
+                                                       name in guarded_api_nodes),
                   "podProfiles": profiles, "pathRankings": rankings.get(name, {}),
                   "peers": [{key: peer.get(key) for key in ("name", "internalIP", "acceleratedIP", "podCIDR", "role", "class")}
                             for peer in spec["nodes"] if peer.get("name") != name],
@@ -148,7 +178,7 @@ def reconcile():
                    (not node.get("inventoryComplete") or not ready.get(node["name"], False))]
     api_ready_nodes = sorted(name for name in eligible_api_nodes if ready.get(name, False))
     status = {"observedGeneration": fabric["metadata"].get("generation", 0),
-              "mode": spec["mode"], "applyEnabled": bool(spec.get("applyEnabled")),
+              "mode": spec["mode"], "applyEnabled": effective_apply,
               "inventoryIncomplete": incomplete, "ineligibleSpines": unavailable,
               "controlPlaneApi": {"enabled": bool(control_plane_api.get("enabled")),
                                   "vip": control_plane_api.get("vip", ""),

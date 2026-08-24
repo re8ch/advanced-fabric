@@ -29,8 +29,11 @@ See [`examples/inventory.example.yaml`](examples/inventory.example.yaml).
 `advancedFabric.controlPlaneApi` models a fixed K3s registration `/32` in the
 accelerated host/FRR domain. Eligible nodes probe their local kube-apiserver
 `/readyz`; the controller publishes eligibility and node readiness in desired
-state and CR status. Version 0.7 remains observe-only: it never binds the VIP
-or originates a route without a future checksum-bound guarded transaction.
+state and CR status. Guarded apply requires a checksum-bound per-node
+transaction. `guardedNodes` limits VIP ownership during canary rollout;
+`nodeOperations` declares only exact fallback routes, WireGuard interfaces and
+FRR export prefix lists. The agent authenticates the local `/readyz` check and
+withdraws BGP before removing the loopback address.
 
 Only an exact address inside `10.250.0.0/24` is accepted. Kubernetes Service
 VIP space, Node InternalIP space and Pod CIDRs remain under their existing

@@ -31,6 +31,8 @@
             "port": {"type": "integer", "const": 6443},
             "mode": {"const": "healthy-ecmp"},
             "eligibleNodes": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+            "guardedNodes": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+            "nodeOperations": {"type": "array", "items": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}}}},
             "primaryTransport": {"const": "wireguard"},
             "fallbackTransport": {"const": "zerotier"},
             "healthCheck": {
