@@ -2,8 +2,8 @@ apiVersion: v2
 name: re8ch-advanced-fabric
 description: RE8CH native-routing, FRR spine/leaf fabric, service VIPs, and network economics
 type: application
-version: 0.7.0
-appVersion: "0.7.0"
+version: 0.8.0
+appVersion: "0.8.0"
 kubeVersion: ">=1.30.0-0"
 home: https://github.com/re8ch/advanced-fabric
 sources:
@@ -22,6 +22,8 @@ annotations:
   artifacthub.io/containsSecurityUpdates: "false"
   artifacthub.io/changes: |
     - kind: added
+      description: Observe-first RouterOSNode v1alpha2 route-domain isolation and checksum-bound reconciliation.
+    - kind: added
       description: Per-node BGP candidate, best and multipath RIB evidence for the Headlamp tables.
     - kind: added
       description: Node selector with structured kernel ECMP, path-decision and peer-inventory tables.
@@ -38,6 +40,11 @@ annotations:
     - kind: changed
       description: The canonical private image registry endpoint is registry.re8ch.com on HTTPS port 443.
   artifacthub.io/crds: |
+    - kind: RouterOSNode
+      version: v1alpha2
+      name: routerosnodes.networking.re8ch.com
+      displayName: RouterOS route-domain boundary
+      description: Role-scoped eBGP peers, protected prefixes and static public VIP fallback intent.
     - kind: AdvancedFabric
       version: v1alpha1
       name: advancedfabrics.networking.re8ch.com

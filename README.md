@@ -24,6 +24,11 @@ helm upgrade --install re8ch-network-fabric \
 Provide deployment-specific nodes and quotas through a private values file.
 See [`examples/inventory.example.yaml`](examples/inventory.example.yaml).
 
+RouterOS integrations use `RouterOSNode/v1alpha2`: BGP is constrained to a
+dedicated acceleration FIB, while public VIPs retain an R640 LAN fallback. The
+controller ships in observe-only/release-gated form so chart installation does
+not change the router or the operator workstation's public path.
+
 ## Development
 
 ```sh
