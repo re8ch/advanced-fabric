@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.0
+
+- Add `RouterOSNode/v1alpha2` with role-scoped peers, protected prefixes,
+  dedicated acceleration FIBs and explicit public VIP fallback intent.
+- Add an observe-first RouterOS controller that publishes a deterministic
+  transaction checksum and refuses all mutations behind a release gate.
+- Preserve `main`, the physical default route and operator workstation traffic
+  as hard invariants of every RouterOS transaction.
+
 ## 0.7.0
 
 - Adds an observe-first `controlPlaneApi` contract for an exact accelerated

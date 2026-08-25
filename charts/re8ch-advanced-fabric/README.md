@@ -24,6 +24,21 @@ helm upgrade --install re8ch-network-fabric \
 Provide deployment-specific nodes and quotas through a private values file.
 See [`examples/inventory.example.yaml`](examples/inventory.example.yaml).
 
+## RouterOS eBGP boundary
+
+`RouterOSNode.networking.re8ch.com/v1alpha2` models RouterOS as an acceleration
+boundary rather than a default-route authority. Cluster peers import into a
+dedicated FIB, public VIPs have an explicit high-distance LAN fallback, and
+protected infrastructure prefixes are rejected before a transaction is
+accepted. The controller is observe-first and publishes the exact SHA-256
+transaction checksum. `GuardedApply` remains release-gated; installing the
+chart cannot mutate RouterOS.
+
+The intended rollout creates fallback routes and shadow policy before moving a
+peer. Keep the physical WAN default route and operator workstation path outside
+the transaction, and abort when either the router-local or external continuity
+probe fails.
+
 ## Control-plane API observation
 
 `advancedFabric.controlPlaneApi` models a fixed K3s registration `/32` in the

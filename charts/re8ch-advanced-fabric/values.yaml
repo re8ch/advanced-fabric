@@ -17,6 +17,11 @@ peer:
   timers: {connectRetry: 3, hold: 9, keepAlive: 3}
   gracefulRestartSeconds: 30
 nodes: {}
+routerOS:
+  enabled: false
+  namespace: kube-system
+  credentialsSecret: {namespace: ops, name: mikrotik-routeros-admin}
+  nodeSelector: {}
 advancedFabric:
   enabled: false
   mode: observe-only
