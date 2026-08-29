@@ -121,7 +121,7 @@ spec:
         - {key: node-role.kubernetes.io/master, operator: Exists}
       containers:
         - name: coredns
-          image: rancher/mirrored-coredns-coredns:1.14.2@sha256:e7e6440cfd1e919280958f5b5a6ab2b184d385bba774c12ad2a9e1e4183f90d9
+          image: rancher/mirrored-coredns-coredns:1.14.2
           args: [-conf, /etc/coredns/Corefile]
           ports:
             - {name: dns, containerPort: 53, protocol: UDP}
