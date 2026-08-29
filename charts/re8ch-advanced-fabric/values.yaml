@@ -54,6 +54,28 @@ advancedFabric:
     enabled: false
   controller:
     nodeSelector: {}
+  networkQuality:
+    enabled: false
+    intervalSeconds: 30
+    timeoutSeconds: 2
+    samples: 3
+    freshnessSeconds: 120
+    minimumCoverageRatio: 1.0
+    maximumLossRatio: 0.0
+    maximumRegionalP95Ms: 20
+    maximumCrossRegionP95Ms: 400
+    dns:
+      maximumFailureRatio: 0.001
+      maximumP95Ms: 50
+      requireTcp: true
+      shadowEnabled: false
+      shadowServiceName: advanced-fabric-dns
+    doh:
+      enabled: false
+      url: https://advanced-fabric-doh.kube-system.svc.cluster.local/dns-query
+      caSecretName: advanced-fabric-doh-tls
+      maximumFailureRatio: 0.001
+      maximumP95Ms: 100
   policyRouting:
     tables: {fastest: 201, balanced: 202, greedy: 203}
     marks: {fastest: 42241, balanced: 42242, greedy: 42243}

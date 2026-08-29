@@ -41,6 +41,7 @@ spec:
                 observeDays: {type: integer, minimum: 0}
                 timezone: {type: string}
                 controller: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                networkQuality: {type: object, x-kubernetes-preserve-unknown-fields: true}
                 weightedEcmp: {type: object, x-kubernetes-preserve-unknown-fields: true}
                 policyRouting: {type: object, x-kubernetes-preserve-unknown-fields: true}
                 nodes: {type: array, items: {type: object, x-kubernetes-preserve-unknown-fields: true}}
