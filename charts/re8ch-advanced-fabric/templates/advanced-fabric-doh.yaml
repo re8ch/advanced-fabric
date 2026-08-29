@@ -133,7 +133,7 @@ spec:
           readinessProbe: {httpGet: {path: /ready, port: ready}, periodSeconds: 5, timeoutSeconds: 2}
           livenessProbe: {httpGet: {path: /health, port: health}, initialDelaySeconds: 15, periodSeconds: 10, timeoutSeconds: 2}
           resources: {requests: {cpu: 50m, memory: 64Mi}, limits: {cpu: 500m, memory: 256Mi}}
-          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true, runAsNonRoot: true, runAsUser: 65532}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {add: [NET_BIND_SERVICE], drop: [ALL]}, readOnlyRootFilesystem: true}
           volumeMounts:
             - {name: config, mountPath: /etc/coredns, readOnly: true}
             - {name: k3s-coredns, mountPath: /etc/k3s-coredns, readOnly: true}
