@@ -2,8 +2,8 @@ apiVersion: v2
 name: re8ch-advanced-fabric
 description: RE8CH native-routing, FRR spine/leaf fabric, service VIPs, and network economics
 type: application
-version: 0.9.1
-appVersion: "0.9.1"
+version: 0.9.2
+appVersion: "0.9.2"
 kubeVersion: ">=1.30.0-0"
 home: https://github.com/re8ch/advanced-fabric
 sources:
@@ -21,6 +21,8 @@ annotations:
   artifacthub.io/operatorCapabilities: deep insights
   artifacthub.io/containsSecurityUpdates: "false"
   artifacthub.io/changes: |
+    - kind: fixed
+      description: Pin the DNS and DoH canary to the verified multi-architecture K3s CoreDNS 1.14.2 mirror digest.
     - kind: fixed
       description: Remove quadratic uniqueItems validation from RouterOSNode CRD arrays for Kubernetes API compatibility.
     - kind: added
@@ -80,7 +82,7 @@ annotations:
         - linux/amd64
         - linux/arm64
     - name: doh-canary
-      image: rancher/mirrored-coredns-coredns:1.14.3@sha256:b21d26b915e10acb5bc78715c1e8b6047ab2675389b2bcc18b3a6499d90e74c0
+      image: rancher/mirrored-coredns-coredns:1.14.2@sha256:e7e6440cfd1e919280958f5b5a6ab2b184d385bba774c12ad2a9e1e4183f90d9
       platforms:
         - linux/amd64
         - linux/arm64
