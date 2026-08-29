@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.9.0
+
+- Add a strict `4 × N²` directed Host/Pod connectivity matrix with independent
+  endpoints in both network namespaces.
+- Add UDP and TCP DNS synthetics from every Host/Pod source, with freshness,
+  coverage, failure-ratio and latency gates.
+- Export the NWQ-1/DNSQ-1 metric contract through a per-node Node Exporter
+  textfile collector for VictoriaMetrics and Grafana.
+- Add an opt-in CoreDNS 1.14.3 RFC 8484 canary and fail-closed DoH quality gate
+  without changing the production `kube-dns` client contract.
+- Add an independently selected UDP/TCP 53 shadow Service that preserves K3s
+  custom zones and NodeHosts, and compare stable/shadow paths before promotion.
+- Publish `NetworkConformanceReady` and `DNSQualityReady`; when measurement is
+  enabled, both conditions participate in `ApplySafe` and guarded apply.
+- Document NWQ-1 and DNSQ-1 metric contracts, diagnostic interpretation,
+  operational DNS telemetry and evidence retention.
+
 ## 0.8.0
 
 - Add `RouterOSNode/v1alpha2` with role-scoped peers, protected prefixes,

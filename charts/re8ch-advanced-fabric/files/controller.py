@@ -10,6 +10,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import math
+import datetime
 
 
 HOST = os.environ.get("API_HOST", os.environ.get("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc"))
@@ -61,6 +62,71 @@ def quota_pressure(usage, limit):
     if ratio >= .95: return {"ratio": ratio, "tier": "critical", "penalty": 400.0}
     if ratio >= .80: return {"ratio": ratio, "tier": "warning", "penalty": 120.0}
     return {"ratio": ratio, "tier": "normal", "penalty": -100.0 * ratio}
+
+
+def parse_time(value):
+    return datetime.datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+
+
+def network_quality(configmaps, inventory_nodes, standard, now=None):
+    """Aggregate directed measurements and return deterministic gate evidence."""
+    now = time.time() if now is None else now
+    node_names = set(inventory_nodes) if not isinstance(inventory_nodes, int) else None
+    node_count = inventory_nodes if isinstance(inventory_nodes, int) else len(node_names)
+    freshness = int(standard.get("freshnessSeconds", 120))
+    paths, dns, doh, sources, stale = [], [], [], set(), []
+    for item in configmaps:
+        try:
+            result = json.loads(item.get("data", {}).get("result.json", "{}"))
+            source = (result["sourceNode"], result["sourcePlane"])
+            if node_names is not None and source[0] not in node_names:
+                continue
+            age = now - parse_time(result["observedAt"])
+            if age > freshness:
+                stale.append("%s/%s" % source)
+                continue
+            sources.add(source)
+            paths.extend(entry for entry in result.get("paths", []) if node_names is None or
+                         entry.get("targetNode") in node_names)
+            dns.extend(dict(entry, sourceNode=source[0], sourcePlane=source[1]) for entry in result.get("dns", []))
+            doh.extend(dict(entry, sourceNode=source[0], sourcePlane=source[1]) for entry in result.get("doh", []))
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            continue
+    expected_paths = 4 * node_count * node_count
+    coverage = len(paths) / expected_paths if expected_paths else 0.0
+    maximum_loss = float(standard.get("maximumLossRatio", 0.0))
+    maximum_latency = float(standard.get("maximumCrossRegionP95Ms", 400))
+    failed_paths = [entry for entry in paths if float(entry.get("lossRatio", 1)) > maximum_loss or
+                    entry.get("p95Ms") is None or float(entry["p95Ms"]) > maximum_latency]
+    dns_standard = standard.get("dns", {})
+    maximum_dns_failure = float(dns_standard.get("maximumFailureRatio", .001))
+    maximum_dns_latency = float(dns_standard.get("maximumP95Ms", 50))
+    failed_dns = [entry for entry in dns if float(entry.get("failureRatio", 1)) > maximum_dns_failure or
+                  entry.get("p95Ms") is None or float(entry["p95Ms"]) > maximum_dns_latency]
+    network_ready = coverage >= float(standard.get("minimumCoverageRatio", 1.0)) and not failed_paths
+    expected_dns_per_source = 4 if dns_standard.get("shadowEnabled") else 2
+    required_roles = {"stable", "shadow"} if dns_standard.get("shadowEnabled") else {"stable"}
+    missing_dns = [{"sourceNode": node, "sourcePlane": plane, "serverRole": role, "protocol": protocol,
+                    "error": "missing"} for node, plane in sources for role in required_roles
+                   for protocol in (("udp", "tcp") if dns_standard.get("requireTcp", True) else ("udp",))
+                   if not any(entry.get("sourceNode") == node and entry.get("sourcePlane") == plane and
+                              entry.get("serverRole", "stable") == role and entry.get("protocol") == protocol
+                              for entry in dns)]
+    failed_dns.extend(missing_dns)
+    dns_ready = (len(sources) == 2 * node_count and len(dns) >= expected_dns_per_source * 2 * node_count
+                 and not failed_dns)
+    doh_standard = standard.get("doh", {})
+    doh_enabled = bool(doh_standard.get("enabled"))
+    failed_doh = [entry for entry in doh if float(entry.get("failureRatio", 1)) >
+                  float(doh_standard.get("maximumFailureRatio", .001)) or entry.get("p95Ms") is None or
+                  float(entry["p95Ms"]) > float(doh_standard.get("maximumP95Ms", 100))]
+    doh_ready = not doh_enabled or (len(sources) == 2 * node_count and len(doh) >= 2 * node_count and not failed_doh)
+    return {"observedSources": len(sources), "expectedSources": 2 * node_count, "observedPaths": len(paths),
+            "expectedPaths": expected_paths, "coverageRatio": round(coverage, 4), "staleSources": sorted(stale),
+            "failedPaths": failed_paths[:100], "failedPathCount": len(failed_paths), "dnsMeasurements": len(dns),
+            "failedDns": failed_dns[:100], "failedDnsCount": len(failed_dns), "networkReady": network_ready,
+            "dnsReady": dns_ready, "dohMeasurements": len(doh), "failedDoh": failed_doh[:100],
+            "failedDohCount": len(failed_doh), "dohReady": doh_ready}
 
 
 def rank_paths(profile, node, edges, costs, ready):
@@ -122,6 +188,12 @@ def reconcile():
     pods = request("GET", "/api/v1/pods").get("items", [])
     advisor_edges = advisor_items("/api/v1/topology/edges")
     advisor_costs = advisor_items("/api/v1/costs/paths")
+    quality_standard = spec.get("networkQuality", {})
+    quality_enabled = bool(quality_standard.get("enabled"))
+    probe_configmaps = []
+    if quality_enabled:
+        probe_configmaps = request("GET", "/api/v1/namespaces/kube-system/configmaps?labelSelector="
+                                   "app.kubernetes.io%2Fcomponent%3Dnetwork-quality").get("items", [])
     node_index = {node["name"]: node for node in spec["nodes"]}
     control_plane_api = spec.get("controlPlaneApi", {"enabled": False})
     eligible_api_nodes = set(control_plane_api.get("eligibleNodes", []))
@@ -133,8 +205,14 @@ def reconcile():
     unknown_guarded_nodes = sorted(guarded_api_nodes - eligible_api_nodes)
     if unknown_guarded_nodes:
         raise ValueError(f"guardedNodes must be eligible: {','.join(unknown_guarded_nodes)}")
-    api_apply_safe = all(ready.get(name, False) and node_index[name].get("inventoryComplete", False)
-                         for name in guarded_api_nodes)
+    incomplete = [node["name"] for node in spec["nodes"] if not node.get("inventoryComplete")]
+    unavailable = [node["name"] for node in spec["nodes"] if node["role"] == "spine" and
+                   (not node.get("inventoryComplete") or not ready.get(node["name"], False))]
+    quality = network_quality(probe_configmaps, [node["name"] for node in spec["nodes"]], quality_standard) if quality_enabled else {
+        "networkReady": True, "dnsReady": True, "dohReady": True, "disabled": True}
+    api_apply_safe = (all(ready.get(name, False) and node_index[name].get("inventoryComplete", False)
+                          for name in guarded_api_nodes) and not incomplete and not unavailable and
+                      quality["networkReady"] and quality["dnsReady"] and quality["dohReady"])
     effective_apply = (bool(spec.get("applyEnabled")) and not bool(spec.get("emergencyDisable"))
                        and api_apply_safe)
     rankings = {name: {profile: rank_paths(profile, node, advisor_edges, advisor_costs, ready)
@@ -181,9 +259,6 @@ def reconcile():
         request("POST", "/api/v1/namespaces/kube-system/configmaps", desired)
     for (namespace, name), status in policy_status.items():
         request("PATCH", f"/apis/networking.re8ch.com/v1alpha1/namespaces/{namespace}/trafficpolicies/{name}/status", {"status": status})
-    incomplete = [node["name"] for node in spec["nodes"] if not node.get("inventoryComplete")]
-    unavailable = [node["name"] for node in spec["nodes"] if node["role"] == "spine" and
-                   (not node.get("inventoryComplete") or not ready.get(node["name"], False))]
     api_ready_nodes = sorted(name for name in eligible_api_nodes if ready.get(name, False))
     status = {"observedGeneration": fabric["metadata"].get("generation", 0),
               "mode": spec["mode"], "applyEnabled": effective_apply,
@@ -192,8 +267,17 @@ def reconcile():
                                   "vip": control_plane_api.get("vip", ""),
                                   "eligibleNodes": sorted(eligible_api_nodes),
                                   "kubernetesReadyNodes": api_ready_nodes},
+              "networkQuality": quality,
               "conditions": [condition("InventoryReady", not incomplete, "InventoryEvaluated", ",".join(incomplete) or "complete"),
-                             condition("ApplySafe", not unavailable and not spec.get("emergencyDisable"), "SpinesEvaluated", ",".join(unavailable) or "all eligible")],
+                             condition("NetworkConformanceReady", quality["networkReady"], "DirectedMatrixEvaluated",
+                                       "%s/%s directed paths; %s failed" % (quality.get("observedPaths", 0), quality.get("expectedPaths", 0), quality.get("failedPathCount", 0))),
+                             condition("DNSQualityReady", quality["dnsReady"], "DNSMeasurementsEvaluated",
+                                       "%s measurements; %s failed" % (quality.get("dnsMeasurements", 0), quality.get("failedDnsCount", 0))),
+                             condition("DoHQualityReady", quality["dohReady"], "DoHMeasurementsEvaluated",
+                                       "%s measurements; %s failed" % (quality.get("dohMeasurements", 0), quality.get("failedDohCount", 0))),
+                             condition("ApplySafe", not incomplete and not unavailable and not spec.get("emergencyDisable") and
+                                       quality["networkReady"] and quality["dnsReady"] and quality["dohReady"], "SafetyGatesEvaluated",
+                                       ",".join(sorted(set(incomplete + unavailable))) or ("all gates passed" if quality["networkReady"] and quality["dnsReady"] and quality["dohReady"] else "network quality gate failed"))],
               "lastEvaluationTime": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     request("PATCH", "/apis/networking.re8ch.com/v1alpha1/advancedfabrics/re8ch/status", {"status": status})
 

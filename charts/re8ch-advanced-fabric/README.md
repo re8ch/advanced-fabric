@@ -17,7 +17,7 @@ interfaces, FRR/BGP/BFD health and kernel ECMP routes. Enable it with
 ```sh
 helm upgrade --install re8ch-network-fabric \
   oci://ghcr.io/re8ch/charts/re8ch-advanced-fabric \
-  --version 0.7.0 \
+  --version 0.9.0 \
   --namespace advanced-fabric --create-namespace
 ```
 
@@ -53,6 +53,22 @@ withdraws BGP before removing the loopback address.
 Only an exact address inside `10.250.0.0/24` is accepted. Kubernetes Service
 VIP space, Node InternalIP space and Pod CIDRs remain under their existing
 authorities.
+
+## Network and DNS conformance
+
+Optional network-quality probes build a directed host/pod matrix from every
+node to every Cilium health host and endpoint address, and run UDP/TCP DNS
+synthetics from both network namespaces. Missing or stale cells fail closed and
+publish `NetworkConformanceReady` and `DNSQualityReady` conditions. See the
+[cluster network quality standard](../../docs/network-quality-standard.md) for
+the metric contract, thresholds, diagnostic interpretation and retention rules.
+
+`advancedFabric.networkQuality.dns.shadowEnabled=true` deploys an independently
+selected CoreDNS 1.14.3 UDP/TCP 53 shadow Service. Enabling `doh.enabled` adds
+RFC 8484 on the same provider. Every Host/Pod source compares stable and shadow
+DNS, while `DoHQualityReady` remains an independent gate. The shadow does not
+modify `kube-dns`, kubelet `cluster-dns` or expose DoH publicly; promotion is a
+separate reviewed GitOps operation.
 
 ## Development
 

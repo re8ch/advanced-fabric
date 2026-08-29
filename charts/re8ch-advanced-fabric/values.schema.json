@@ -39,6 +39,43 @@
         "nativeRoutingCIDR": {"type": "string", "const": "10.42.0.0/16"},
         "acceleratedCIDR": {"type": "string", "const": "10.250.0.0/24"},
         "serviceCIDR": {"type": "string", "const": "10.251.0.0/24"},
+        "networkQuality": {
+          "type": "object",
+          "required": ["enabled", "intervalSeconds", "timeoutSeconds", "samples", "freshnessSeconds", "minimumCoverageRatio", "maximumLossRatio", "maximumRegionalP95Ms", "maximumCrossRegionP95Ms", "dns", "doh"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "intervalSeconds": {"type": "integer", "minimum": 10, "maximum": 300},
+            "timeoutSeconds": {"type": "number", "minimum": 0.2, "maximum": 10},
+            "samples": {"type": "integer", "minimum": 1, "maximum": 20},
+            "freshnessSeconds": {"type": "integer", "minimum": 30, "maximum": 900},
+            "minimumCoverageRatio": {"type": "number", "minimum": 0, "maximum": 1},
+            "maximumLossRatio": {"type": "number", "minimum": 0, "maximum": 1},
+            "maximumRegionalP95Ms": {"type": "number", "minimum": 1},
+            "maximumCrossRegionP95Ms": {"type": "number", "minimum": 1},
+            "dns": {
+              "type": "object",
+              "required": ["maximumFailureRatio", "maximumP95Ms", "requireTcp", "shadowEnabled", "shadowServiceName"],
+              "properties": {
+                "maximumFailureRatio": {"type": "number", "minimum": 0, "maximum": 1},
+                "maximumP95Ms": {"type": "number", "minimum": 1},
+                "requireTcp": {"type": "boolean"},
+                "shadowEnabled": {"type": "boolean"},
+                "shadowServiceName": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"}
+              }
+            },
+            "doh": {
+              "type": "object",
+              "required": ["enabled", "url", "caSecretName", "maximumFailureRatio", "maximumP95Ms"],
+              "properties": {
+                "enabled": {"type": "boolean"},
+                "url": {"type": "string", "pattern": "^https://[a-z0-9.-]+/dns-query$"},
+                "caSecretName": {"type": "string", "minLength": 1},
+                "maximumFailureRatio": {"type": "number", "minimum": 0, "maximum": 1},
+                "maximumP95Ms": {"type": "number", "minimum": 1}
+              }
+            }
+          }
+        },
         "controlPlaneApi": {
           "type": "object",
           "required": ["enabled", "vip", "port", "mode", "eligibleNodes", "primaryTransport", "fallbackTransport", "healthCheck"],

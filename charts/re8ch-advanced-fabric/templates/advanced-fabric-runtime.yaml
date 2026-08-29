@@ -8,7 +8,7 @@ kind: ClusterRole
 metadata: {name: re8ch-advanced-fabric}
 rules:
   - apiGroups: [""]
-    resources: [nodes, pods]
+    resources: [nodes, pods, services]
     verbs: [get, list, watch]
   - apiGroups: [""]
     resources: [configmaps]
@@ -37,6 +37,8 @@ data:
 {{ .Files.Get "files/host-agent.sh" | indent 4 }}
   status-publisher.py: |
 {{ .Files.Get "files/status-publisher.py" | indent 4 }}
+  conformance-probe.py: |
+{{ .Files.Get "files/conformance-probe.py" | indent 4 }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -50,7 +52,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/runtime: {{ printf "%s\n%s\n%s" (.Files.Get "files/controller.py") (.Files.Get "files/host-agent.sh") (.Files.Get "files/status-publisher.py") | sha256sum | quote }}
+        checksum/runtime: {{ printf "%s\n%s\n%s\n%s" (.Files.Get "files/controller.py") (.Files.Get "files/host-agent.sh") (.Files.Get "files/status-publisher.py") (.Files.Get "files/conformance-probe.py") | sha256sum | quote }}
       labels: {app.kubernetes.io/name: re8ch-advanced-fabric-controller}
     spec:
       serviceAccountName: re8ch-advanced-fabric
@@ -83,7 +85,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/runtime: {{ printf "%s\n%s\n%s" (.Files.Get "files/controller.py") (.Files.Get "files/host-agent.sh") (.Files.Get "files/status-publisher.py") | sha256sum | quote }}
+        checksum/runtime: {{ printf "%s\n%s\n%s\n%s" (.Files.Get "files/controller.py") (.Files.Get "files/host-agent.sh") (.Files.Get "files/status-publisher.py") (.Files.Get "files/conformance-probe.py") | sha256sum | quote }}
       labels: {app.kubernetes.io/name: re8ch-advanced-fabric-agent}
     spec:
       serviceAccountName: re8ch-advanced-fabric
@@ -112,9 +114,109 @@ spec:
           volumeMounts:
             - {name: runtime, mountPath: /runtime, readOnly: true}
             - {name: status, mountPath: /status, readOnly: true}
+{{- if .Values.advancedFabric.networkQuality.enabled }}
+        - name: host-conformance
+          image: python:3.13-alpine@sha256:540c7d91f98ff6880174c40e99067bf5941eb54d818a7a5e094d188b196a934d
+          command: [python3, /runtime/conformance-probe.py]
+          env:
+            - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
+            - {name: SOURCE_PLANE, value: host}
+            - {name: PROBE_INTERVAL_SECONDS, value: {{ .Values.advancedFabric.networkQuality.intervalSeconds | quote }}}
+            - {name: PROBE_TIMEOUT_SECONDS, value: {{ .Values.advancedFabric.networkQuality.timeoutSeconds | quote }}}
+            - {name: PROBE_SAMPLES, value: {{ .Values.advancedFabric.networkQuality.samples | quote }}}
+{{- if .Values.advancedFabric.networkQuality.dns.shadowEnabled }}
+            - {name: SHADOW_DNS_SERVICE, value: {{ .Values.advancedFabric.networkQuality.dns.shadowServiceName | quote }}}
+{{- end }}
+{{- if .Values.advancedFabric.networkQuality.doh.enabled }}
+            - {name: DOH_URL, value: {{ .Values.advancedFabric.networkQuality.doh.url | quote }}}
+            - {name: DOH_CA_FILE, value: /doh-ca/tls.crt}
+{{- end }}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true}
+          resources: {requests: {cpu: 10m, memory: 24Mi}, limits: {cpu: 100m, memory: 64Mi}}
+          volumeMounts:
+            - {name: runtime, mountPath: /runtime, readOnly: true}
+            - {name: network-quality-metrics, mountPath: /metrics}
+{{- if .Values.advancedFabric.networkQuality.doh.enabled }}
+            - {name: doh-ca, mountPath: /doh-ca, readOnly: true}
+{{- end }}
+        - name: network-quality-exporter
+          image: quay.io/prometheus/node-exporter:v1.9.1
+          args: [--web.listen-address=:19101, --collector.disable-defaults, --collector.textfile, --collector.textfile.directory=/metrics]
+          ports: [{name: metrics, containerPort: 19101}]
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true, runAsNonRoot: true, runAsUser: 65534}
+          resources: {requests: {cpu: 5m, memory: 16Mi}, limits: {cpu: 50m, memory: 48Mi}}
+          volumeMounts: [{name: network-quality-metrics, mountPath: /metrics, readOnly: true}]
+{{- end }}
       volumes:
         - {name: runtime, configMap: {name: re8ch-advanced-fabric-runtime, defaultMode: 365}}
         - {name: desired, configMap: {name: advanced-fabric-desired, optional: true}}
         - {name: host, hostPath: {path: /, type: Directory}}
         - {name: status, emptyDir: {}}
+{{- if .Values.advancedFabric.networkQuality.enabled }}
+        - {name: network-quality-metrics, hostPath: {path: /var/lib/re8ch/advanced-fabric/textfile, type: DirectoryOrCreate}}
+{{- if .Values.advancedFabric.networkQuality.doh.enabled }}
+        - {name: doh-ca, secret: {secretName: {{ .Values.advancedFabric.networkQuality.doh.caSecretName }}}}
+{{- end }}
+{{- end }}
+{{- if .Values.advancedFabric.networkQuality.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: re8ch-advanced-fabric-node-exporter
+  namespace: kube-system
+  labels: {app.kubernetes.io/name: re8ch-advanced-fabric-node-exporter, app.kubernetes.io/part-of: re8ch-advanced-fabric}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector: {app.kubernetes.io/name: re8ch-advanced-fabric-agent}
+  ports: [{name: metrics, port: 19101, targetPort: metrics}]
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata: {name: re8ch-advanced-fabric-pod-conformance, namespace: kube-system}
+spec:
+  updateStrategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 25%}}
+  selector: {matchLabels: {app.kubernetes.io/name: re8ch-advanced-fabric-pod-conformance}}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: re8ch-advanced-fabric-pod-conformance}
+      annotations:
+        checksum/runtime: {{ .Files.Get "files/conformance-probe.py" | sha256sum | quote }}
+    spec:
+      serviceAccountName: re8ch-advanced-fabric
+      priorityClassName: system-node-critical
+      tolerations: [{operator: Exists}]
+      containers:
+        - name: pod-conformance
+          image: python:3.13-alpine@sha256:540c7d91f98ff6880174c40e99067bf5941eb54d818a7a5e094d188b196a934d
+          command: [python3, /runtime/conformance-probe.py]
+          env:
+            - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
+            - {name: SOURCE_PLANE, value: pod}
+            - {name: PROBE_INTERVAL_SECONDS, value: {{ .Values.advancedFabric.networkQuality.intervalSeconds | quote }}}
+            - {name: PROBE_TIMEOUT_SECONDS, value: {{ .Values.advancedFabric.networkQuality.timeoutSeconds | quote }}}
+            - {name: PROBE_SAMPLES, value: {{ .Values.advancedFabric.networkQuality.samples | quote }}}
+{{- if .Values.advancedFabric.networkQuality.dns.shadowEnabled }}
+            - {name: SHADOW_DNS_SERVICE, value: {{ .Values.advancedFabric.networkQuality.dns.shadowServiceName | quote }}}
+{{- end }}
+{{- if .Values.advancedFabric.networkQuality.doh.enabled }}
+            - {name: DOH_URL, value: {{ .Values.advancedFabric.networkQuality.doh.url | quote }}}
+            - {name: DOH_CA_FILE, value: /doh-ca/tls.crt}
+{{- end }}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true}
+          resources: {requests: {cpu: 10m, memory: 24Mi}, limits: {cpu: 100m, memory: 64Mi}}
+          volumeMounts:
+            - {name: runtime, mountPath: /runtime, readOnly: true}
+            - {name: network-quality-metrics, mountPath: /metrics}
+{{- if .Values.advancedFabric.networkQuality.doh.enabled }}
+            - {name: doh-ca, mountPath: /doh-ca, readOnly: true}
+{{- end }}
+      volumes:
+        - {name: runtime, configMap: {name: re8ch-advanced-fabric-runtime, defaultMode: 365}}
+        - {name: network-quality-metrics, hostPath: {path: /var/lib/re8ch/advanced-fabric/textfile, type: DirectoryOrCreate}}
+{{- if .Values.advancedFabric.networkQuality.doh.enabled }}
+        - {name: doh-ca, secret: {secretName: {{ .Values.advancedFabric.networkQuality.doh.caSecretName }}}}
+{{- end }}
+{{- end }}
 {{- end }}
