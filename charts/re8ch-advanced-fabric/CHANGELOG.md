@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.1
+
+- Remove quadratic `uniqueItems` validation from RouterOSNode CRD arrays so Kubernetes can replace the CRD during Helm upgrades.
+
 ## 0.9.0
 
 - Add a strict `4 × N²` directed Host/Pod connectivity matrix with independent

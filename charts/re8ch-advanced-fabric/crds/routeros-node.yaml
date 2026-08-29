@@ -66,7 +66,7 @@ spec:
                     properties:
                       name: {type: string, pattern: '^re8ch-[a-z0-9-]+$'}
                       fib: {type: boolean}
-                      prefixes: {type: array, minItems: 1, uniqueItems: true, items: {type: string}}
+                      prefixes: {type: array, minItems: 1, items: {type: string}}
                       fallbackTable: {type: string, enum: [main]}
                 peers:
                   type: array
@@ -80,7 +80,7 @@ spec:
                       address: {type: string}
                       remoteASN: {type: integer, format: int64, minimum: 1}
                       localAddress: {type: string, format: ipv4}
-                      acceptedPrefixes: {type: array, minItems: 1, uniqueItems: true, items: {type: string}}
+                      acceptedPrefixes: {type: array, minItems: 1, items: {type: string}}
                       maxPrefixes: {type: integer, minimum: 1, maximum: 256}
                       routeDomain: {type: string}
                       useBFD: {type: boolean, default: false}
@@ -91,7 +91,6 @@ spec:
                 protectedPrefixes:
                   type: array
                   minItems: 1
-                  uniqueItems: true
                   items: {type: string}
                 fallbackNextHop: {type: string, format: ipv4}
                 publicVIPs:
