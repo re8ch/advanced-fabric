@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.1
+
+- Make observe-only host agents strictly read-only: route, WireGuard and FRR
+  removal is a mutation and no longer runs outside guarded apply.
+- Validate mutation transactions and FRR availability only when guarded apply
+  is actually enabled, so observation remains available on heterogeneous nodes.
+
 ## 0.10.0
 
 - Separate continuous measurement from quality enforcement; enforcement remains
