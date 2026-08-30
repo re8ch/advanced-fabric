@@ -186,13 +186,16 @@ api_healthy() {
 }
 
 while [ ! -s "${NODE_FILE}" ]; do sleep 2; done
-validate_transaction; host systemctl is-active --quiet frr
 successes=0; failures=0; announced=false
 while :; do
   apply=$(jq -r '.mode == "guarded-apply" and .applyEnabled == true' "${NODE_FILE}"); guarded=$(transaction | jq -r '.guarded')
   if [ "${apply}" != true ]; then
-    withdraw_vip; manage_wireguard_allowed_ips remove; manage_wireguard_peer_policies remove; manage_frr_transit_prefixes remove; manage_forward_rules remove; manage_fallback_routes remove; successes=0; failures=0; announced=false
+    # Observe-only is strictly read-only. Cleanup/removal is also a mutation and
+    # must be performed by a separately reviewed guarded-apply transaction.
+    successes=0; failures=0; announced=false
   else
+    validate_transaction
+    host systemctl is-active --quiet frr
     manage_fallback_routes apply; manage_wireguard_allowed_ips apply; manage_wireguard_peer_policies apply; manage_frr_transit_prefixes apply; manage_forward_rules apply; manage_frr_import_prefixes; manage_frr_neighbor_policies
     if [ "${guarded}" != true ]; then withdraw_vip; successes=0; failures=0; announced=false
     elif api_healthy; then
