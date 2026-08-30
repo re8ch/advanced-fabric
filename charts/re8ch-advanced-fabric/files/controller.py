@@ -190,6 +190,7 @@ def reconcile():
     advisor_costs = advisor_items("/api/v1/costs/paths")
     quality_standard = spec.get("networkQuality", {})
     quality_enabled = bool(quality_standard.get("enabled"))
+    quality_enforced = quality_enabled and bool(quality_standard.get("enforcementEnabled", False))
     probe_configmaps = []
     if quality_enabled:
         probe_configmaps = request("GET", "/api/v1/namespaces/kube-system/configmaps?labelSelector="
@@ -210,9 +211,11 @@ def reconcile():
                    (not node.get("inventoryComplete") or not ready.get(node["name"], False))]
     quality = network_quality(probe_configmaps, [node["name"] for node in spec["nodes"]], quality_standard) if quality_enabled else {
         "networkReady": True, "dnsReady": True, "dohReady": True, "disabled": True}
+    quality_gate_ready = (not quality_enforced or
+                          (quality["networkReady"] and quality["dnsReady"] and quality["dohReady"]))
     api_apply_safe = (all(ready.get(name, False) and node_index[name].get("inventoryComplete", False)
                           for name in guarded_api_nodes) and not incomplete and not unavailable and
-                      quality["networkReady"] and quality["dnsReady"] and quality["dohReady"])
+                      quality_gate_ready)
     effective_apply = (bool(spec.get("applyEnabled")) and not bool(spec.get("emergencyDisable"))
                        and api_apply_safe)
     rankings = {name: {profile: rank_paths(profile, node, advisor_edges, advisor_costs, ready)
@@ -262,6 +265,7 @@ def reconcile():
     api_ready_nodes = sorted(name for name in eligible_api_nodes if ready.get(name, False))
     status = {"observedGeneration": fabric["metadata"].get("generation", 0),
               "mode": spec["mode"], "applyEnabled": effective_apply,
+              "networkQualityEnforced": quality_enforced,
               "inventoryIncomplete": incomplete, "ineligibleSpines": unavailable,
               "controlPlaneApi": {"enabled": bool(control_plane_api.get("enabled")),
                                   "vip": control_plane_api.get("vip", ""),
@@ -276,8 +280,10 @@ def reconcile():
                              condition("DoHQualityReady", quality["dohReady"], "DoHMeasurementsEvaluated",
                                        "%s measurements; %s failed" % (quality.get("dohMeasurements", 0), quality.get("failedDohCount", 0))),
                              condition("ApplySafe", not incomplete and not unavailable and not spec.get("emergencyDisable") and
-                                       quality["networkReady"] and quality["dnsReady"] and quality["dohReady"], "SafetyGatesEvaluated",
-                                       ",".join(sorted(set(incomplete + unavailable))) or ("all gates passed" if quality["networkReady"] and quality["dnsReady"] and quality["dohReady"] else "network quality gate failed"))],
+                                       quality_gate_ready, "SafetyGatesEvaluated",
+                                       ",".join(sorted(set(incomplete + unavailable))) or
+                                       ("measurement-only; quality standard is not enforced" if quality_enabled and not quality_enforced else
+                                        "all gates passed" if quality_gate_ready else "network quality gate failed"))],
               "lastEvaluationTime": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     request("PATCH", "/apis/networking.re8ch.com/v1alpha1/advancedfabrics/re8ch/status", {"status": status})
 

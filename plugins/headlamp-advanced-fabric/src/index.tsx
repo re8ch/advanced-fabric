@@ -14,8 +14,20 @@ type FabricStatus = {
   pathRankings?: Record<string, unknown>;
 };
 
+type QualitySnapshot = {
+  sourceNode: string;
+  sourcePlane: string;
+  observedAt?: string;
+  paths?: Array<{lossRatio?: number; p95Ms?: number}>;
+  dns?: Array<{serverRole?: string; protocol?: string; failureRatio?: number; p95Ms?: number}>;
+};
+
 function parseStatus(item: any): FabricStatus | null {
   try { return JSON.parse(item.jsonData?.data?.['status.json'] || item.data?.['status.json']); } catch { return null; }
+}
+
+function parseQuality(item: any): QualitySnapshot | null {
+  try { return JSON.parse(item.jsonData?.data?.['result.json'] || item.data?.['result.json']); } catch { return null; }
 }
 
 function bgpPeers(value: any): string {
@@ -41,6 +53,33 @@ function Dashboard() {
   const statuses = (maps || [])
     .filter((item: any) => item.metadata?.labels?.['networking.re8ch.com/node-status'] === 'true')
     .map(parseStatus).filter(Boolean).sort((a: FabricStatus, b: FabricStatus) => a.node.localeCompare(b.node)) as FabricStatus[];
+  const quality = (maps || [])
+    .filter((item: any) => item.metadata?.labels?.['app.kubernetes.io/component'] === 'network-quality')
+    .map(parseQuality).filter(Boolean).sort((a: QualitySnapshot, b: QualitySnapshot) =>
+      `${a.sourceNode}/${a.sourcePlane}`.localeCompare(`${b.sourceNode}/${b.sourcePlane}`)) as QualitySnapshot[];
+  const qualityRows = quality.map(item => {
+    const paths = item.paths || [];
+    const dns = item.dns || [];
+    return {source: `${item.sourceNode}/${item.sourcePlane}`, observed: item.observedAt ? new Date(item.observedAt).toLocaleString() : 'unknown',
+      pathSamples: paths.length, failedPaths: paths.filter(path => Number(path.lossRatio || 0) > 0).length,
+      pathP95: paths.length ? Math.max(...paths.map(path => Number(path.p95Ms || 0))) : 0,
+      dnsSamples: dns.length, failedDns: dns.filter(sample => Number(sample.failureRatio || 0) > 0).length,
+      dnsP95: dns.length ? Math.max(...dns.map(sample => Number(sample.p95Ms || 0))) : 0};
+  });
+  const staleQuality = quality.filter(item => Date.now() - Date.parse(item.observedAt || '') > 120000).length;
+  const intelligenceRows = statuses.map(status => {
+    const samples = quality.filter(item => item.sourceNode === status.node);
+    const paths = samples.flatMap(item => item.paths || []);
+    const successful = paths.filter(path => Number(path.lossRatio || 0) === 0);
+    const candidatePeers = new Set(Object.values(status.pathRankings || {}).flatMap((items: any) =>
+      (items || []).map((item: any) => item.peer).filter(Boolean)));
+    const newest = samples.map(item => Date.parse(item.observedAt || '')).filter(Number.isFinite).sort((a, b) => b - a)[0];
+    return {node: status.node,
+      optimality: paths.length ? `${Math.round(1000 * successful.length / paths.length) / 10}% paths without loss` : 'no measurement',
+      worstP95: successful.length ? Math.max(...successful.map(path => Number(path.p95Ms || 0))) : '—',
+      stability: newest && Date.now() - newest <= 120000 ? 'fresh snapshot' : 'stale / baseline pending',
+      independence: `${candidatePeers.size} candidate peers`};
+  });
   const stale = statuses.filter(item => Date.now() - Date.parse(item.observedAt || '') > 90000).length;
   const [selectedNode, setSelectedNode] = React.useState('');
   const effectiveNode = statuses.some(item => item.node === selectedNode) ? selectedNode : statuses[0]?.node || '';
@@ -74,6 +113,24 @@ function Dashboard() {
     <Typography color="text.secondary">各节点实际 Native/VXLAN、FRR/BGP/BFD 与内核 ECMP 视图。</Typography>
     {error && <Alert severity="error">无法读取状态 ConfigMap：{String(error)}</Alert>}
     {stale > 0 && <Alert severity="warning">{stale} 个节点状态超过 90 秒未更新</Alert>}
+    <Alert severity="info">质量阈值应在 VictoriaMetrics/Grafana 中形成长期基线后评审；此处显示最新测量覆盖与故障证据，不把单次快照当作质量标准。</Alert>
+    {staleQuality > 0 && <Alert severity="warning">{staleQuality} 个网络/DNS 测量源超过 120 秒未更新</Alert>}
+    <SectionBox title={`Network & DNS measurement continuity (${quality.length} sources)`}>
+      <Table data={qualityRows} columns={[
+        {header: 'Source', accessorKey: 'source'}, {header: 'Observed', accessorKey: 'observed'},
+        {header: 'Path samples', accessorKey: 'pathSamples'}, {header: 'Paths with loss', accessorKey: 'failedPaths'},
+        {header: 'Worst path p95 ms', accessorKey: 'pathP95'}, {header: 'DNS samples', accessorKey: 'dnsSamples'},
+        {header: 'DNS failures', accessorKey: 'failedDns'}, {header: 'Worst DNS p95 ms', accessorKey: 'dnsP95'}
+      ] as any}/>
+    </SectionBox>
+    <SectionBox title="Per-node network intelligence triangle">
+      <Table data={intelligenceRows} columns={[
+        {header: 'Node', accessorKey: 'node'}, {header: 'Optimality evidence', accessorKey: 'optimality'},
+        {header: 'Worst successful p95 ms', accessorKey: 'worstP95'},
+        {header: 'Stability evidence', accessorKey: 'stability'},
+        {header: 'Failure-independence proxy', accessorKey: 'independence'}
+      ] as any}/>
+    </SectionBox>
     <SectionBox title={`Node network status (${statuses.length})`}><Table data={statuses} columns={columns as any}/></SectionBox>
     <Stack direction={{xs: 'column', md: 'row'}} spacing={2} sx={{my: 2}} alignItems="center">
       <FormControl size="small" sx={{minWidth: 280}}>

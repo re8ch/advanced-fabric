@@ -171,6 +171,23 @@ spec:
   publishNotReadyAddresses: true
   selector: {app.kubernetes.io/name: re8ch-advanced-fabric-agent}
   ports: [{name: metrics, port: 19101, targetPort: metrics}]
+{{- if and .Values.advancedFabric.networkQuality.victoriaMetricsServiceScrape (.Capabilities.APIVersions.Has "operator.victoriametrics.com/v1beta1/VMServiceScrape") }}
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: re8ch-advanced-fabric-network-quality
+  namespace: kube-system
+  labels: {app.kubernetes.io/name: re8ch-advanced-fabric-network-quality, app.kubernetes.io/part-of: re8ch-advanced-fabric}
+spec:
+  namespaceSelector: {matchNames: [kube-system]}
+  selector:
+    matchLabels: {app.kubernetes.io/name: re8ch-advanced-fabric-node-exporter}
+  endpoints:
+    - port: metrics
+      interval: {{ .Values.advancedFabric.networkQuality.intervalSeconds }}s
+      scrapeTimeout: 10s
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: DaemonSet
