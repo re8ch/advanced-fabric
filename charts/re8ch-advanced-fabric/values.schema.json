@@ -41,9 +41,11 @@
         "serviceCIDR": {"type": "string", "const": "10.251.0.0/24"},
         "networkQuality": {
           "type": "object",
-          "required": ["enabled", "intervalSeconds", "timeoutSeconds", "samples", "freshnessSeconds", "minimumCoverageRatio", "maximumLossRatio", "maximumRegionalP95Ms", "maximumCrossRegionP95Ms", "dns", "doh"],
+          "required": ["enabled", "enforcementEnabled", "victoriaMetricsServiceScrape", "intervalSeconds", "timeoutSeconds", "samples", "freshnessSeconds", "minimumCoverageRatio", "maximumLossRatio", "maximumRegionalP95Ms", "maximumCrossRegionP95Ms", "dns", "doh"],
           "properties": {
             "enabled": {"type": "boolean"},
+            "enforcementEnabled": {"type": "boolean"},
+            "victoriaMetricsServiceScrape": {"type": "boolean"},
             "intervalSeconds": {"type": "integer", "minimum": 10, "maximum": 300},
             "timeoutSeconds": {"type": "number", "minimum": 0.2, "maximum": 10},
             "samples": {"type": "integer", "minimum": 1, "maximum": 20},

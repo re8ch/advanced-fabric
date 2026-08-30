@@ -1,9 +1,25 @@
 # Cluster network quality standard
 
-This standard answers a binary architecture question: can every scheduled node
-participate in the cluster's native-routing and DNS data planes? A healthy
-Cilium controller is necessary but is not evidence that the distributed data
-plane passes this standard.
+This document begins as a stable measurement contract, not a claim that its
+initial thresholds are the correct production standard. It records whether
+every scheduled node can participate in the cluster's native-routing and DNS
+data planes and preserves the distributions needed to learn the answer over
+time. A healthy Cilium controller is necessary but is not evidence that the
+distributed data plane is healthy.
+
+The rollout order is mandatory:
+
+1. enable measurement with `networkQuality.enabled=true` and keep
+   `networkQuality.enforcementEnabled=false`;
+2. verify scrape continuity, bounded labels and retention, then collect at
+   least 30 days spanning routine failures and topology changes;
+3. publish baseline distributions by region, source plane, path class and DNS
+   server role, including missing and stale observations;
+4. review SLOs and error budgets from those distributions; only then enable
+   enforcement through the normal GitOps review.
+
+The numeric gates below are conservative candidate thresholds for conformance
+runs. They do not automatically constitute a production quality standard.
 
 ## NWQ-1: directed reachability matrix
 
@@ -104,13 +120,43 @@ the clients and queried suffixes before changing capacity.
 Probe snapshots are stored as labeled ConfigMaps in `kube-system`; the
 controller aggregates them into `AdvancedFabric.status.networkQuality`. The
 conditions `NetworkConformanceReady` and `DNSQualityReady` expose independent
-gates. When network-quality measurement is enabled, both gates, complete
-inventory, eligible spines and the emergency-disable state participate in
-`ApplySafe` and effective guarded apply.
+evaluations. They participate in `ApplySafe` only when
+`networkQuality.enforcementEnabled=true`; inventory, eligible spines and the
+emergency-disable state remain independent safety checks.
 
 The feature defaults to disabled so chart installation remains observe-first.
 Enable it with `advancedFabric.networkQuality.enabled=true`. Enabling measurement
-does not modify routes, Cilium configuration, firewall rules or CoreDNS.
+does not modify routes, Cilium configuration, firewall rules or CoreDNS, and
+does not block apply while `enforcementEnabled=false`.
+
+## The network design impossible triangle
+
+Advanced Fabric evaluates three properties that cannot all be maximized on a
+heterogeneous, multi-region underlay:
+
+1. **Path optimality** — lowest latency/loss/cost path, including rapid path
+   switching and optional hedged requests.
+2. **Deterministic stability** — bounded route churn, symmetric return paths,
+   predictable conntrack and debuggable BGP/ECMP decisions.
+3. **Failure independence** — no shared DNS, tunnel, provider, region or
+   control-plane failure domain between the primary and alternate path.
+
+The trade-off is measured, not hidden in a single health boolean. NWQ-1 and
+DNSQ-1 measure availability and user-visible latency; route-change rate, BGP
+best-path changes, ECMP member churn and asymmetric-flow/conntrack failures
+measure stability; shared provider/region/tunnel labels measure independence.
+The default policy prioritizes stability and independence. A faster candidate
+may replace or hedge the selected path only when it has a distinct failure
+domain, passes the same conformance gates, and improves the rolling p95 by more
+than the configured hysteresis. Otherwise the current path remains selected.
+
+Hedging is an application/transport optimization, not a general IP forwarding
+primitive. It must be restricted to idempotent requests with an explicit
+latency budget, cancellation support and a duplication budget. TCP packets,
+writes, DNS updates and arbitrary pod traffic must never be duplicated by the
+fabric controller. The first safe implementation should publish a hedge
+recommendation and counterfactual metrics in observe-only mode before any
+workload opts in.
 
 ## Evidence retention
 
@@ -120,6 +166,12 @@ only Node Exporter exposes those files; VictoriaMetrics discovers the headless
 exporter Service through Kubernetes endpoints. Grafana reads only the
 VictoriaMetrics datasource. ConfigMaps remain a current-state exchange for the
 controller gate and are not the historical metrics path.
+
+When the VictoriaMetrics Operator CRD is available and
+`networkQuality.victoriaMetricsServiceScrape=true`, the chart creates a
+`VMServiceScrape` for every node-exporter endpoint. Absence of that object is a
+measurement-pipeline failure: quality evaluation must remain unenforced until
+the target is continuously up and the retention policy has been verified.
 
 The stable metric families are:
 

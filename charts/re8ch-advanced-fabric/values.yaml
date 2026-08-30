@@ -56,6 +56,9 @@ advancedFabric:
     nodeSelector: {}
   networkQuality:
     enabled: false
+    # Observe and retain a baseline before turning measurements into gates.
+    enforcementEnabled: false
+    victoriaMetricsServiceScrape: true
     intervalSeconds: 30
     timeoutSeconds: 2
     samples: 3

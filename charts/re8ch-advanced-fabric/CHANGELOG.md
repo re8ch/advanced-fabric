@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.0
+
+- Separate continuous measurement from quality enforcement; enforcement remains
+  disabled until a reviewed long-term baseline exists.
+- Publish a VMServiceScrape when the VictoriaMetrics Operator is installed.
+- Add per-node network-intelligence triangle evidence to the Headlamp view.
+- Document observe-first intelligent routing and idempotent hedge constraints.
+
 ## 0.9.1
 
 - Remove quadratic `uniqueItems` validation from RouterOSNode CRD arrays so Kubernetes can replace the CRD during Helm upgrades.
