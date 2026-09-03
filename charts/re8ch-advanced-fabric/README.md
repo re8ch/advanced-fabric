@@ -68,6 +68,8 @@ provider. It watches Services and EndpointSlices directly and answers ClusterIP,
 ExternalName, headless endpoint and named-port SRV records for `cluster.local`.
 The same in-memory index serves UDP/TCP 53 and RFC 8484 DoH. It does not mount,
 read or require any K3s CoreDNS resource.
+Private or delegated zones use the explicit `dns.conditionalForwarders` map;
+they are chart values rather than imported legacy server fragments.
 
 ### DNS migration and rollback
 

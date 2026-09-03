@@ -18,11 +18,41 @@ import urllib.request
 
 CLUSTER_DOMAIN = os.getenv("CLUSTER_DOMAIN", "cluster.local").strip(".")
 UPSTREAMS = [x for x in os.getenv("UPSTREAMS", "223.5.5.5,119.29.29.29,1.1.1.1").split(",") if x]
+CONDITIONAL_FORWARDERS = {zone.rstrip(".").lower() + ".": servers for zone, servers in
+                          json.loads(os.getenv("CONDITIONAL_FORWARDERS", "{}")).items()}
 API = "https://%s:%s" % (os.environ["KUBERNETES_SERVICE_HOST"], os.environ["KUBERNETES_SERVICE_PORT_HTTPS"])
 TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 Q_A, Q_NS, Q_CNAME, Q_SOA, Q_PTR, Q_AAAA, Q_SRV = 1, 2, 5, 6, 12, 28, 33
 CLASS_IN, TTL = 1, int(os.getenv("TTL", "30"))
+METRICS_LOCK = threading.Lock()
+METRICS = {"queries": 0, "failures": 0, "forwarded": 0}
+
+
+def metric(name, amount=1):
+    with METRICS_LOCK:
+        METRICS[name] += amount
+
+
+def prometheus_metrics():
+    with METRICS_LOCK:
+        values = dict(METRICS)
+    values["ready"] = int(INDEX.is_ready())
+    lines = [
+        "# HELP advanced_fabric_dns_queries_total DNS requests received.",
+        "# TYPE advanced_fabric_dns_queries_total counter",
+        "advanced_fabric_dns_queries_total %d" % values["queries"],
+        "# HELP advanced_fabric_dns_failures_total Requests returning SERVFAIL or malformed input.",
+        "# TYPE advanced_fabric_dns_failures_total counter",
+        "advanced_fabric_dns_failures_total %d" % values["failures"],
+        "# HELP advanced_fabric_dns_forwarded_total Requests sent to an upstream resolver.",
+        "# TYPE advanced_fabric_dns_forwarded_total counter",
+        "advanced_fabric_dns_forwarded_total %d" % values["forwarded"],
+        "# HELP advanced_fabric_dns_ready Whether both Kubernetes watches are current.",
+        "# TYPE advanced_fabric_dns_ready gauge",
+        "advanced_fabric_dns_ready %d" % values["ready"],
+    ]
+    return ("\n".join(lines) + "\n").encode()
 
 
 def read_name(packet, offset):
@@ -226,8 +256,11 @@ class KubernetesIndex:
 INDEX = KubernetesIndex()
 
 
-def forward(packet):
-    for upstream in UPSTREAMS:
+def forward(packet, name=""):
+    matching = [(zone, servers) for zone, servers in CONDITIONAL_FORWARDERS.items() if name.endswith(zone)]
+    upstreams = max(matching, key=lambda item: len(item[0]))[1] if matching else UPSTREAMS
+    for upstream in upstreams:
+        metric("forwarded")
         family = socket.AF_INET6 if ":" in upstream else socket.AF_INET
         try:
             with socket.socket(family, socket.SOCK_DGRAM) as sock:
@@ -248,17 +281,23 @@ def forward(packet):
 
 
 def answer(packet):
+    metric("queries")
     try:
         name, qtype, qclass, raw_question = question(packet)
         if qclass != CLASS_IN:
             raise ValueError("unsupported class")
         records = INDEX.records(name, qtype)
         if records is None:
-            return forward(packet) or packet[:2] + b"\x81\x82" + packet[4:6] + b"\0\0\0\0\0\0" + raw_question
+            response = forward(packet, name)
+            if response is not None:
+                return response
+            metric("failures")
+            return packet[:2] + b"\x81\x82" + packet[4:6] + b"\0\0\0\0\0\0" + raw_question
         payload = b"".join(rr(name, kind, value) for kind, value in records)
         flags = b"\x85\x80" if records else b"\x85\x83"
         return packet[:2] + flags + struct.pack("!HHHH", 1, len(records), 0, 0) + raw_question + payload
     except (ValueError, UnicodeError):
+        metric("failures")
         return packet[:2].ljust(2, b"\0") + b"\x81\x81\0\0\0\0\0\0\0\0"
 
 
@@ -299,6 +338,8 @@ class HTTPHandler(http.server.BaseHTTPRequestHandler):
         if parsed.path == "/ready":
             ready = INDEX.is_ready()
             return self._send(200 if ready else 503, b"ready\n" if ready else b"not ready\n")
+        if parsed.path == "/metrics":
+            return self._send(200, prometheus_metrics(), "text/plain; version=0.0.4")
         if parsed.path != "/dns-query":
             return self._send(404)
         encoded = urllib.parse.parse_qs(parsed.query).get("dns", [""])[0]
@@ -329,11 +370,12 @@ def serve():
     threading.Thread(target=INDEX.run, daemon=True).start()
     servers = [ThreadingUDPServer(("0.0.0.0", 53), UDPHandler), ThreadingTCPServer(("0.0.0.0", 53), TCPHandler)]
     health = http.server.ThreadingHTTPServer(("0.0.0.0", 8080), HTTPHandler)
+    metrics = http.server.ThreadingHTTPServer(("0.0.0.0", 9153), HTTPHandler)
     doh = http.server.ThreadingHTTPServer(("0.0.0.0", 8443), HTTPHandler)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain("/tls/tls.crt", "/tls/tls.key")
     doh.socket = context.wrap_socket(doh.socket, server_side=True)
-    servers.extend([health, doh])
+    servers.extend([health, metrics, doh])
     for server in servers:
         threading.Thread(target=server.serve_forever, daemon=True).start()
     signal.pause()

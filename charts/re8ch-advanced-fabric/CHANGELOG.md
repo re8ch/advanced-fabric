@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.1
+
+- Preserve explicit private-zone conditional forwarding with longest-suffix matching.
+- Expose native Advanced Fabric DNS query, failure, forwarding, and readiness metrics on port 9153.
+
 ## 0.11.0
 
 - Make Advanced Fabric DNS authoritative for Kubernetes Service discovery over UDP/TCP 53 and DoH.
