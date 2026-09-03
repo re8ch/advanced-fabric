@@ -72,6 +72,7 @@ spec:
     metadata:
       annotations:
         checksum/runtime: {{ .Files.Get "files/dns_server.py" | sha256sum | quote }}
+        advanced-fabric.re8ch.com/chart-version: {{ .Chart.Version | quote }}
       labels: {app.kubernetes.io/name: advanced-fabric-doh, app.kubernetes.io/component: authoritative-dns, app.kubernetes.io/part-of: re8ch-advanced-fabric}
     spec:
       serviceAccountName: advanced-fabric-dns

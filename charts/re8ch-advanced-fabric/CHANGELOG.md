@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.3
+
+- Roll authoritative DNS pods on every chart revision so renewed certificates
+  are loaded instead of remaining resident in an old TLS listener.
+- Hot-reload projected TLS keypairs and let the Helm hook retry verified DoH
+  during the bounded cert-manager projection window.
+
 ## 0.11.2
 
 - Make the Helm health hook bootstrap-safe by testing DoH directly through the
