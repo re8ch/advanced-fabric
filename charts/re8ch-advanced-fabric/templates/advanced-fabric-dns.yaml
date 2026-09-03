@@ -66,7 +66,9 @@ metadata:
   labels: {app.kubernetes.io/name: advanced-fabric-doh, app.kubernetes.io/component: authoritative-dns, app.kubernetes.io/part-of: re8ch-advanced-fabric}
 spec:
   replicas: {{ .Values.advancedFabric.dns.replicas }}
-  strategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 0, maxSurge: 1}}
+  # With one replica per explicitly eligible node, maxUnavailable=0 deadlocks:
+  # the surge Pod cannot satisfy required anti-affinity until one old Pod exits.
+  strategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 1, maxSurge: 1}}
   selector: {matchLabels: {app.kubernetes.io/name: advanced-fabric-doh}}
   template:
     metadata:
@@ -99,6 +101,9 @@ spec:
             - {name: UPSTREAMS, value: {{ join "," .Values.advancedFabric.dns.upstreams | quote }}}
             - {name: CONDITIONAL_FORWARDERS, value: {{ .Values.advancedFabric.dns.conditionalForwarders | toJson | quote }}}
             - {name: TTL, value: {{ .Values.advancedFabric.dns.ttlSeconds | quote }}}
+{{- if .Values.advancedFabric.dns.kubernetesApiEndpoints }}
+            - {name: KUBERNETES_API_ENDPOINTS, value: {{ join "," .Values.advancedFabric.dns.kubernetesApiEndpoints | quote }}}
+{{- end }}
           ports:
             - {name: dns, containerPort: 53, protocol: UDP}
             - {name: dns-tcp, containerPort: 53, protocol: TCP}
