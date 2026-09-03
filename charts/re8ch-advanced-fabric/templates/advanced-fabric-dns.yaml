@@ -79,6 +79,14 @@ spec:
       priorityClassName: system-cluster-critical
       dnsPolicy: Default
       terminationGracePeriodSeconds: 15
+{{- with .Values.advancedFabric.dns.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | indent 8 }}
+{{- end }}
+{{- with .Values.advancedFabric.dns.affinity }}
+      affinity:
+{{ toYaml . | indent 8 }}
+{{- end }}
       topologySpreadConstraints:
         - {maxSkew: 1, topologyKey: kubernetes.io/hostname, whenUnsatisfiable: DoNotSchedule, labelSelector: {matchLabels: {app.kubernetes.io/name: advanced-fabric-doh}}}
       tolerations: [{operator: Exists}]

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.5
+
+- Expose authoritative DNS node selector and affinity so operators can exclude
+  unstable workstation/WSL nodes and pin replicas to reviewed failure domains.
+
 ## 0.11.4
 
 - Add a reloadable static-authority mode for bootstrap and private management
