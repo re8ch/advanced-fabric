@@ -73,6 +73,10 @@ class DNSServerTest(unittest.TestCase):
         self.assertNotIn("name: coredns", template)
         self.assertNotIn("Corefile", template)
         self.assertNotIn("NodeHosts", template)
+        self.assertIn('ipAddresses: [{{ .Values.advancedFabric.dns.service.clusterIP | quote }}]', template)
+        self.assertIn('"before-hook-creation,hook-succeeded"', template)
+        probe = (ROOT / "charts/re8ch-advanced-fabric/files/dns_probe.py").read_text()
+        self.assertNotIn("advanced-fabric-doh.kube-system.svc", probe)
 
     def test_conditional_forwarder_uses_longest_matching_zone(self):
         packet = query("api.zt.re8ch.com", dns.Q_A)
