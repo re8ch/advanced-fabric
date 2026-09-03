@@ -2,6 +2,7 @@ import importlib.util
 import os
 import struct
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -72,6 +73,30 @@ class DNSServerTest(unittest.TestCase):
         self.assertNotIn("name: coredns", template)
         self.assertNotIn("Corefile", template)
         self.assertNotIn("NodeHosts", template)
+
+    def test_conditional_forwarder_uses_longest_matching_zone(self):
+        packet = query("api.zt.re8ch.com", dns.Q_A)
+        attempted = []
+        dns.CONDITIONAL_FORWARDERS = {
+            "re8ch.com.": ["192.0.2.1"],
+            "zt.re8ch.com.": ["192.0.2.2"],
+        }
+
+        class FakeSocket:
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+            def settimeout(self, _): pass
+            def sendto(self, _packet, target): attempted.append(target[0])
+            def recv(self, _size): raise OSError("test")
+
+        with mock.patch.object(dns.socket, "socket", return_value=FakeSocket()):
+            dns.forward(packet, "api.zt.re8ch.com.")
+        self.assertEqual(attempted, ["192.0.2.2"])
+
+    def test_prometheus_metrics_exposes_readiness(self):
+        dns.INDEX.synced = {"services", "slices"}
+        dns.INDEX.last_sync = {"services": __import__("time").time(), "slices": __import__("time").time()}
+        self.assertIn(b"advanced_fabric_dns_ready 1", dns.prometheus_metrics())
 
 
 def socket_bytes(address):

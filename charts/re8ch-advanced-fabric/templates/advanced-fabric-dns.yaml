@@ -80,12 +80,14 @@ spec:
           env:
             - {name: CLUSTER_DOMAIN, value: {{ .Values.advancedFabric.dns.clusterDomain | quote }}}
             - {name: UPSTREAMS, value: {{ join "," .Values.advancedFabric.dns.upstreams | quote }}}
+            - {name: CONDITIONAL_FORWARDERS, value: {{ .Values.advancedFabric.dns.conditionalForwarders | toJson | quote }}}
             - {name: TTL, value: {{ .Values.advancedFabric.dns.ttlSeconds | quote }}}
           ports:
             - {name: dns, containerPort: 53, protocol: UDP}
             - {name: dns-tcp, containerPort: 53, protocol: TCP}
             - {name: doh, containerPort: 8443, protocol: TCP}
             - {name: health, containerPort: 8080, protocol: TCP}
+            - {name: metrics, containerPort: 9153, protocol: TCP}
           startupProbe: {httpGet: {path: /ready, port: health}, periodSeconds: 2, failureThreshold: 30}
           readinessProbe: {httpGet: {path: /ready, port: health}, periodSeconds: 5, timeoutSeconds: 2, failureThreshold: 2}
           livenessProbe: {httpGet: {path: /health, port: health}, initialDelaySeconds: 15, periodSeconds: 10, timeoutSeconds: 2}
@@ -117,6 +119,7 @@ spec:
   ports:
     - {name: dns, port: 53, targetPort: dns, protocol: UDP}
     - {name: dns-tcp, port: 53, targetPort: dns-tcp, protocol: TCP}
+    - {name: metrics, port: 9153, targetPort: metrics, protocol: TCP}
 ---
 apiVersion: v1
 kind: Service

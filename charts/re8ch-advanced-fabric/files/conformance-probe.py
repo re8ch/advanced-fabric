@@ -24,6 +24,7 @@ TEXTFILE_DIR = os.environ.get("TEXTFILE_DIR", "/metrics")
 DOH_URL = os.environ.get("DOH_URL", "")
 DOH_CA_FILE = os.environ.get("DOH_CA_FILE", "/doh-ca/tls.crt")
 SHADOW_DNS_SERVICE = os.environ.get("SHADOW_DNS_SERVICE", "")
+DNS_SERVICE = os.environ.get("DNS_SERVICE", "advanced-fabric-dns")
 BASE = "https://%s:%s" % (os.environ["KUBERNETES_SERVICE_HOST"], os.environ["KUBERNETES_SERVICE_PORT_HTTPS"])
 TOKEN = open("/var/run/secrets/kubernetes.io/serviceaccount/token", encoding="utf-8").read().strip()
 CONTEXT = ssl.create_default_context(cafile="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
@@ -165,7 +166,7 @@ def discover():
         host_ip = next((item.get("address") for item in addresses if item.get("type") == "InternalIP"), None)
         if name in inventory_nodes:
             targets.append({"node": name, "hostIP": host_ip, "podIP": pod_ips.get(name)})
-    service = api("GET", "/api/v1/namespaces/kube-system/services/kube-dns")
+    service = api("GET", "/api/v1/namespaces/kube-system/services/%s" % DNS_SERVICE)
     dns_servers = [("stable", service.get("spec", {}).get("clusterIP"))]
     if SHADOW_DNS_SERVICE:
         try:

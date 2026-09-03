@@ -41,7 +41,7 @@
         "serviceCIDR": {"type": "string", "const": "10.251.0.0/24"},
         "dns": {
           "type": "object",
-          "required": ["enabled", "image", "replicas", "pdbMinAvailable", "clusterDomain", "ttlSeconds", "upstreams", "service", "doh", "migration"],
+          "required": ["enabled", "image", "replicas", "pdbMinAvailable", "clusterDomain", "ttlSeconds", "upstreams", "conditionalForwarders", "service", "doh", "migration"],
           "properties": {
             "enabled": {"type": "boolean"},
             "image": {"type": "string", "minLength": 1},
@@ -50,6 +50,7 @@
             "clusterDomain": {"type": "string", "const": "cluster.local"},
             "ttlSeconds": {"type": "integer", "minimum": 1, "maximum": 300},
             "upstreams": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+            "conditionalForwarders": {"type": "object", "additionalProperties": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}},
             "service": {
               "type": "object",
               "required": ["name", "clusterIP"],

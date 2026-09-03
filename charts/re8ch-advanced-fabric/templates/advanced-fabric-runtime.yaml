@@ -121,6 +121,7 @@ spec:
           env:
             - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
             - {name: SOURCE_PLANE, value: host}
+            - {name: DNS_SERVICE, value: {{ .Values.advancedFabric.dns.service.name | quote }}}
             - {name: PROBE_INTERVAL_SECONDS, value: {{ .Values.advancedFabric.networkQuality.intervalSeconds | quote }}}
             - {name: PROBE_TIMEOUT_SECONDS, value: {{ .Values.advancedFabric.networkQuality.timeoutSeconds | quote }}}
             - {name: PROBE_SAMPLES, value: {{ .Values.advancedFabric.networkQuality.samples | quote }}}
@@ -211,6 +212,7 @@ spec:
           env:
             - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
             - {name: SOURCE_PLANE, value: pod}
+            - {name: DNS_SERVICE, value: {{ .Values.advancedFabric.dns.service.name | quote }}}
             - {name: PROBE_INTERVAL_SECONDS, value: {{ .Values.advancedFabric.networkQuality.intervalSeconds | quote }}}
             - {name: PROBE_TIMEOUT_SECONDS, value: {{ .Values.advancedFabric.networkQuality.timeoutSeconds | quote }}}
             - {name: PROBE_SAMPLES, value: {{ .Values.advancedFabric.networkQuality.samples | quote }}}
