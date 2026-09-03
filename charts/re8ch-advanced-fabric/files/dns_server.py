@@ -20,7 +20,10 @@ CLUSTER_DOMAIN = os.getenv("CLUSTER_DOMAIN", "cluster.local").strip(".")
 UPSTREAMS = [x for x in os.getenv("UPSTREAMS", "223.5.5.5,119.29.29.29,1.1.1.1").split(",") if x]
 CONDITIONAL_FORWARDERS = {zone.rstrip(".").lower() + ".": servers for zone, servers in
                           json.loads(os.getenv("CONDITIONAL_FORWARDERS", "{}")).items()}
-API = "https://%s:%s" % (os.environ["KUBERNETES_SERVICE_HOST"], os.environ["KUBERNETES_SERVICE_PORT_HTTPS"])
+API = "https://%s:%s" % (os.environ.get("KUBERNETES_SERVICE_HOST", ""), os.environ.get("KUBERNETES_SERVICE_PORT_HTTPS", ""))
+STATIC_RECORDS_FILE = os.getenv("STATIC_RECORDS_FILE", "")
+BIND_ADDRESS = os.getenv("BIND_ADDRESS", "0.0.0.0")
+ENABLE_DOH = os.getenv("ENABLE_DOH", "true").lower() == "true"
 TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 Q_A, Q_NS, Q_CNAME, Q_SOA, Q_PTR, Q_AAAA, Q_SRV = 1, 2, 5, 6, 12, 28, 33
@@ -253,7 +256,52 @@ class KubernetesIndex:
         return answers
 
 
-INDEX = KubernetesIndex()
+class StaticIndex:
+    """Reloadable authoritative records for non-Kubernetes bootstrap zones."""
+
+    def __init__(self, path):
+        self.path, self.lock, self.records_by_name = path, threading.RLock(), {}
+        self.mtime = 0
+        self.reload()
+
+    def reload(self):
+        mtime = os.stat(self.path).st_mtime_ns
+        if mtime == self.mtime:
+            return
+        with open(self.path, encoding="utf-8") as stream:
+            payload = json.load(stream)
+        parsed = {}
+        for name, values in payload["records"].items():
+            fqdn = name.rstrip(".").lower() + "."
+            parsed[fqdn] = [(globals()["Q_" + item["type"]], item["value"]) for item in values]
+        with self.lock:
+            self.records_by_name, self.mtime = parsed, mtime
+
+    def run(self):
+        while True:
+            try:
+                self.reload()
+            except (OSError, ValueError, KeyError) as exc:
+                print("static DNS reload failed: %s" % exc, flush=True)
+            time.sleep(5)
+
+    def is_ready(self):
+        with self.lock:
+            return bool(self.records_by_name)
+
+    def records(self, name, qtype):
+        self.reload()
+        with self.lock:
+            records = self.records_by_name.get(name)
+        if records is None:
+            zone = os.getenv("STATIC_ZONE", "").rstrip(".").lower() + "."
+            return [] if zone != "." and name.endswith(zone) else None
+        if qtype == 255:
+            return records
+        return [record for record in records if record[0] == qtype or record[0] == Q_CNAME]
+
+
+INDEX = StaticIndex(STATIC_RECORDS_FILE) if STATIC_RECORDS_FILE else KubernetesIndex()
 
 
 def forward(packet, name=""):
@@ -382,15 +430,17 @@ def reload_tls(context):
 
 def serve():
     threading.Thread(target=INDEX.run, daemon=True).start()
-    servers = [ThreadingUDPServer(("0.0.0.0", 53), UDPHandler), ThreadingTCPServer(("0.0.0.0", 53), TCPHandler)]
-    health = http.server.ThreadingHTTPServer(("0.0.0.0", 8080), HTTPHandler)
-    metrics = http.server.ThreadingHTTPServer(("0.0.0.0", 9153), HTTPHandler)
-    doh = http.server.ThreadingHTTPServer(("0.0.0.0", 8443), HTTPHandler)
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    context.load_cert_chain("/tls/tls.crt", "/tls/tls.key")
-    doh.socket = context.wrap_socket(doh.socket, server_side=True)
-    threading.Thread(target=reload_tls, args=(context,), daemon=True).start()
-    servers.extend([health, metrics, doh])
+    servers = [ThreadingUDPServer((BIND_ADDRESS, 53), UDPHandler), ThreadingTCPServer((BIND_ADDRESS, 53), TCPHandler)]
+    health = http.server.ThreadingHTTPServer((BIND_ADDRESS, 8080), HTTPHandler)
+    metrics = http.server.ThreadingHTTPServer((BIND_ADDRESS, 9153), HTTPHandler)
+    servers.extend([health, metrics])
+    if ENABLE_DOH:
+        doh = http.server.ThreadingHTTPServer((BIND_ADDRESS, 8443), HTTPHandler)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain("/tls/tls.crt", "/tls/tls.key")
+        doh.socket = context.wrap_socket(doh.socket, server_side=True)
+        threading.Thread(target=reload_tls, args=(context,), daemon=True).start()
+        servers.append(doh)
     for server in servers:
         threading.Thread(target=server.serve_forever, daemon=True).start()
     signal.pause()

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.4
+
+- Add a reloadable static-authority mode for bootstrap and private management
+  zones that must remain independent of the Kubernetes API.
+- Allow binding DNS/health/metrics to one management IP and disabling DoH when
+  no host certificate is provisioned.
+
 ## 0.11.3
 
 - Roll authoritative DNS pods on every chart revision so renewed certificates

@@ -1,6 +1,8 @@
 import importlib.util
 import os
 import struct
+import json
+import tempfile
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -104,6 +106,19 @@ class DNSServerTest(unittest.TestCase):
         dns.INDEX.synced = {"services", "slices"}
         dns.INDEX.last_sync = {"services": __import__("time").time(), "slices": __import__("time").time()}
         self.assertIn(b"advanced_fabric_dns_ready 1", dns.prometheus_metrics())
+
+    def test_static_authority_mode(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as stream:
+            json.dump({"records": {
+                "headlamp.zt.re8ch.com": [{"type": "A", "value": "10.181.22.16"}],
+                "panel.zt.re8ch.com": [{"type": "CNAME", "value": "headlamp.zt.re8ch.com."}],
+            }}, stream)
+            stream.flush()
+            index = dns.StaticIndex(stream.name)
+            self.assertTrue(index.is_ready())
+            self.assertEqual(index.records("headlamp.zt.re8ch.com.", dns.Q_A), [(dns.Q_A, "10.181.22.16")])
+            self.assertEqual(index.records("panel.zt.re8ch.com.", dns.Q_A),
+                             [(dns.Q_CNAME, "headlamp.zt.re8ch.com.")])
 
 
 def socket_bytes(address):
