@@ -2,8 +2,8 @@ apiVersion: v2
 name: re8ch-advanced-fabric
 description: RE8CH native-routing, FRR spine/leaf fabric, service VIPs, and network economics
 type: application
-version: 0.11.3
-appVersion: "0.11.3"
+version: 0.11.4
+appVersion: "0.11.4"
 kubeVersion: ">=1.30.0-0"
 home: https://github.com/re8ch/advanced-fabric
 sources:
