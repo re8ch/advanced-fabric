@@ -366,6 +366,20 @@ class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     allow_reuse_address = True
 
 
+def reload_tls(context):
+    paths = ("/tls/tls.crt", "/tls/tls.key")
+    signature = None
+    while True:
+        try:
+            current = tuple(os.stat(path).st_mtime_ns for path in paths)
+            if current != signature:
+                context.load_cert_chain(*paths)
+                signature = current
+        except OSError as exc:
+            print("TLS certificate reload failed: %s" % exc, flush=True)
+        time.sleep(10)
+
+
 def serve():
     threading.Thread(target=INDEX.run, daemon=True).start()
     servers = [ThreadingUDPServer(("0.0.0.0", 53), UDPHandler), ThreadingTCPServer(("0.0.0.0", 53), TCPHandler)]
@@ -375,6 +389,7 @@ def serve():
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain("/tls/tls.crt", "/tls/tls.key")
     doh.socket = context.wrap_socket(doh.socket, server_side=True)
+    threading.Thread(target=reload_tls, args=(context,), daemon=True).start()
     servers.extend([health, metrics, doh])
     for server in servers:
         threading.Thread(target=server.serve_forever, daemon=True).start()

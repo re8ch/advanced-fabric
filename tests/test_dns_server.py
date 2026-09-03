@@ -77,6 +77,9 @@ class DNSServerTest(unittest.TestCase):
         self.assertIn('"before-hook-creation,hook-succeeded"', template)
         probe = (ROOT / "charts/re8ch-advanced-fabric/files/dns_probe.py").read_text()
         self.assertNotIn("advanced-fabric-doh.kube-system.svc", probe)
+        self.assertIn('create_default_context(cafile="/tls/ca.crt")', probe)
+        self.assertNotIn("_create_unverified_context", probe)
+        self.assertIn("advanced-fabric.re8ch.com/chart-version", template)
 
     def test_conditional_forwarder_uses_longest_matching_zone(self):
         packet = query("api.zt.re8ch.com", dns.Q_A)
