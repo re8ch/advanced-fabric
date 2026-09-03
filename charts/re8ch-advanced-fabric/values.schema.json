@@ -28,7 +28,7 @@
     },
     "advancedFabric": {
       "type": "object",
-      "required": ["enabled", "mode", "applyEnabled", "observeDays", "emergencyDisable", "nativeRoutingCIDR", "acceleratedCIDR", "serviceCIDR", "nodes"],
+      "required": ["enabled", "mode", "applyEnabled", "observeDays", "emergencyDisable", "nativeRoutingCIDR", "acceleratedCIDR", "serviceCIDR", "dns", "nodes"],
       "properties": {
         "enabled": {"type": "boolean"},
         "mode": {"enum": ["observe-only", "guarded-apply"]},
@@ -39,6 +39,40 @@
         "nativeRoutingCIDR": {"type": "string", "const": "10.42.0.0/16"},
         "acceleratedCIDR": {"type": "string", "const": "10.250.0.0/24"},
         "serviceCIDR": {"type": "string", "const": "10.251.0.0/24"},
+        "dns": {
+          "type": "object",
+          "required": ["enabled", "image", "replicas", "pdbMinAvailable", "clusterDomain", "ttlSeconds", "upstreams", "service", "doh", "migration"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "image": {"type": "string", "minLength": 1},
+            "replicas": {"type": "integer", "minimum": 2},
+            "pdbMinAvailable": {"type": "integer", "minimum": 1},
+            "clusterDomain": {"type": "string", "const": "cluster.local"},
+            "ttlSeconds": {"type": "integer", "minimum": 1, "maximum": 300},
+            "upstreams": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+            "service": {
+              "type": "object",
+              "required": ["name", "clusterIP"],
+              "properties": {
+                "name": {"const": "advanced-fabric-dns"},
+                "clusterIP": {"const": "10.43.65.40"}
+              }
+            },
+            "doh": {
+              "type": "object",
+              "required": ["serviceName", "caSecretName"],
+              "properties": {
+                "serviceName": {"const": "advanced-fabric-doh"},
+                "caSecretName": {"type": "string", "minLength": 1}
+              }
+            },
+            "migration": {
+              "type": "object",
+              "required": ["phase"],
+              "properties": {"phase": {"enum": ["shadow", "active", "rollback"]}}
+            }
+          }
+        },
         "networkQuality": {
           "type": "object",
           "required": ["enabled", "enforcementEnabled", "victoriaMetricsServiceScrape", "intervalSeconds", "timeoutSeconds", "samples", "freshnessSeconds", "minimumCoverageRatio", "maximumLossRatio", "maximumRegionalP95Ms", "maximumCrossRegionP95Ms", "dns", "doh"],

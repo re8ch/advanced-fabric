@@ -1,0 +1,148 @@
+{{- if and .Values.advancedFabric.enabled .Values.advancedFabric.dns.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: advanced-fabric-dns, namespace: kube-system}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: advanced-fabric-dns}
+rules:
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [get, list, watch]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: advanced-fabric-dns}
+subjects: [{kind: ServiceAccount, name: advanced-fabric-dns, namespace: kube-system}]
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: advanced-fabric-dns}
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata: {name: advanced-fabric-dns-selfsigned, namespace: kube-system}
+spec: {selfSigned: {}}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata: {name: advanced-fabric-dns, namespace: kube-system}
+spec:
+  secretName: {{ .Values.advancedFabric.dns.doh.caSecretName }}
+  duration: 2160h
+  renewBefore: 360h
+  privateKey: {algorithm: ECDSA, size: 256, rotationPolicy: Always}
+  dnsNames:
+    - {{ .Values.advancedFabric.dns.doh.serviceName }}.kube-system.svc
+    - {{ .Values.advancedFabric.dns.doh.serviceName }}.kube-system.svc.{{ .Values.advancedFabric.dns.clusterDomain }}
+  issuerRef: {name: advanced-fabric-dns-selfsigned, kind: Issuer}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: advanced-fabric-dns, namespace: kube-system}
+data:
+  dns_server.py: |
+{{ .Files.Get "files/dns_server.py" | indent 4 }}
+  dns_probe.py: |
+{{ .Files.Get "files/dns_probe.py" | indent 4 }}
+  migration.json: |
+    {"phase":{{ .Values.advancedFabric.dns.migration.phase | quote }},"clusterIP":{{ .Values.advancedFabric.dns.service.clusterIP | quote }},"legacyCoreDNSDependency":false}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  # Keep the v0.9 workload identity for an endpoint-preserving in-place rollout.
+  name: advanced-fabric-doh
+  namespace: kube-system
+  labels: {app.kubernetes.io/name: advanced-fabric-doh, app.kubernetes.io/component: authoritative-dns, app.kubernetes.io/part-of: re8ch-advanced-fabric}
+spec:
+  replicas: {{ .Values.advancedFabric.dns.replicas }}
+  strategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 0, maxSurge: 1}}
+  selector: {matchLabels: {app.kubernetes.io/name: advanced-fabric-doh}}
+  template:
+    metadata:
+      annotations:
+        checksum/runtime: {{ .Files.Get "files/dns_server.py" | sha256sum | quote }}
+      labels: {app.kubernetes.io/name: advanced-fabric-doh, app.kubernetes.io/component: authoritative-dns, app.kubernetes.io/part-of: re8ch-advanced-fabric}
+    spec:
+      serviceAccountName: advanced-fabric-dns
+      priorityClassName: system-cluster-critical
+      dnsPolicy: Default
+      terminationGracePeriodSeconds: 15
+      topologySpreadConstraints:
+        - {maxSkew: 1, topologyKey: kubernetes.io/hostname, whenUnsatisfiable: DoNotSchedule, labelSelector: {matchLabels: {app.kubernetes.io/name: advanced-fabric-doh}}}
+      tolerations: [{operator: Exists}]
+      containers:
+        - name: advanced-fabric-dns
+          image: {{ .Values.advancedFabric.dns.image }}
+          command: [python3, /runtime/dns_server.py]
+          env:
+            - {name: CLUSTER_DOMAIN, value: {{ .Values.advancedFabric.dns.clusterDomain | quote }}}
+            - {name: UPSTREAMS, value: {{ join "," .Values.advancedFabric.dns.upstreams | quote }}}
+            - {name: TTL, value: {{ .Values.advancedFabric.dns.ttlSeconds | quote }}}
+          ports:
+            - {name: dns, containerPort: 53, protocol: UDP}
+            - {name: dns-tcp, containerPort: 53, protocol: TCP}
+            - {name: doh, containerPort: 8443, protocol: TCP}
+            - {name: health, containerPort: 8080, protocol: TCP}
+          startupProbe: {httpGet: {path: /ready, port: health}, periodSeconds: 2, failureThreshold: 30}
+          readinessProbe: {httpGet: {path: /ready, port: health}, periodSeconds: 5, timeoutSeconds: 2, failureThreshold: 2}
+          livenessProbe: {httpGet: {path: /health, port: health}, initialDelaySeconds: 15, periodSeconds: 10, timeoutSeconds: 2}
+          resources: {requests: {cpu: 50m, memory: 64Mi}, limits: {cpu: 500m, memory: 256Mi}}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {add: [NET_BIND_SERVICE], drop: [ALL]}, readOnlyRootFilesystem: true, runAsNonRoot: true, runAsUser: 65532}
+          volumeMounts:
+            - {name: runtime, mountPath: /runtime, readOnly: true}
+            - {name: tls, mountPath: /tls, readOnly: true}
+      volumes:
+        - {name: runtime, configMap: {name: advanced-fabric-dns, defaultMode: 365}}
+        - {name: tls, secret: {secretName: {{ .Values.advancedFabric.dns.doh.caSecretName }}}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: advanced-fabric-dns, namespace: kube-system}
+spec:
+  minAvailable: {{ .Values.advancedFabric.dns.pdbMinAvailable }}
+  selector: {matchLabels: {app.kubernetes.io/name: advanced-fabric-doh}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.advancedFabric.dns.service.name }}
+  namespace: kube-system
+  labels: {app.kubernetes.io/name: advanced-fabric-dns, app.kubernetes.io/part-of: re8ch-advanced-fabric}
+spec:
+  clusterIP: {{ .Values.advancedFabric.dns.service.clusterIP }}
+  selector: {app.kubernetes.io/name: advanced-fabric-doh}
+  ports:
+    - {name: dns, port: 53, targetPort: dns, protocol: UDP}
+    - {name: dns-tcp, port: 53, targetPort: dns-tcp, protocol: TCP}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: {{ .Values.advancedFabric.dns.doh.serviceName }}, namespace: kube-system}
+spec:
+  selector: {app.kubernetes.io/name: advanced-fabric-doh}
+  ports: [{name: https, port: 443, targetPort: doh, protocol: TCP}]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: advanced-fabric-dns-health-check
+  namespace: kube-system
+  annotations: {"helm.sh/hook": test, "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded}
+spec:
+  restartPolicy: Never
+  containers:
+    - name: probe
+      image: {{ .Values.advancedFabric.dns.image }}
+      command: [python3, /runtime/dns_probe.py]
+      env: [{name: DNS_SERVER, value: {{ .Values.advancedFabric.dns.service.clusterIP | quote }}}]
+      securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true, runAsNonRoot: true, runAsUser: 65532}
+      volumeMounts:
+        - {name: runtime, mountPath: /runtime, readOnly: true}
+        - {name: ca, mountPath: /tls, readOnly: true}
+  volumes:
+    - {name: runtime, configMap: {name: advanced-fabric-dns, defaultMode: 365}}
+    - {name: ca, secret: {secretName: {{ .Values.advancedFabric.dns.doh.caSecretName }}, items: [{key: tls.crt, path: ca.crt}]}}
+{{- end }}

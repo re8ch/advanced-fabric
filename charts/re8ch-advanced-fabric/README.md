@@ -17,7 +17,7 @@ interfaces, FRR/BGP/BFD health and kernel ECMP routes. Enable it with
 ```sh
 helm upgrade --install re8ch-network-fabric \
   oci://ghcr.io/re8ch/charts/re8ch-advanced-fabric \
-  --version 0.9.1 \
+  --version 0.11.0 \
   --namespace advanced-fabric --create-namespace
 ```
 
@@ -63,12 +63,31 @@ publish `NetworkConformanceReady` and `DNSQualityReady` conditions. See the
 [cluster network quality standard](../../docs/network-quality-standard.md) for
 the metric contract, thresholds, diagnostic interpretation and retention rules.
 
-`advancedFabric.networkQuality.dns.shadowEnabled=true` deploys an independently
-selected CoreDNS 1.14.3 UDP/TCP 53 shadow Service. Enabling `doh.enabled` adds
-RFC 8484 on the same provider. Every Host/Pod source compares stable and shadow
-DNS, while `DoHQualityReady` remains an independent gate. The shadow does not
-modify `kube-dns`, kubelet `cluster-dns` or expose DoH publicly; promotion is a
-separate reviewed GitOps operation.
+`advancedFabric.dns.enabled=true` deploys the Advanced Fabric authoritative DNS
+provider. It watches Services and EndpointSlices directly and answers ClusterIP,
+ExternalName, headless endpoint and named-port SRV records for `cluster.local`.
+The same in-memory index serves UDP/TCP 53 and RFC 8484 DoH. It does not mount,
+read or require any K3s CoreDNS resource.
+
+### DNS migration and rollback
+
+1. Install with `migration.phase=shadow`, leaving the existing kubelet
+   `clusterDNS` unchanged. Run `helm test` and compare UDP, TCP and DoH answers,
+   including ClusterIP, headless and SRV fixtures.
+2. Reserve the immutable Service IP, set `migration.phase=active`, and change
+   every K3s server and agent to `cluster-dns=10.43.65.40`. Restart nodes in
+   bounded failure-domain batches only after the new Deployment is Available.
+3. Remove the legacy DNS Deployment and configuration objects after all newly
+   created Pods contain `nameserver 10.43.65.40` and the conformance gate is
+   green. Historical objects are not part of the runtime or rollback contract.
+4. To roll back, first restore the previous kubelet `clusterDNS` target, restart
+   kubelets in bounded batches, set `migration.phase=rollback`, and then use the
+   Helm release rollback. Never delete the fixed-IP Service while clients still
+   reference it.
+
+The Deployment uses initial API-sync startup/readiness gates, a 30-second watch
+freshness gate, `maxUnavailable=0`, topology spreading and a PDB. This keeps
+upgrades and scaling independent of historical DNS objects.
 
 ## Development
 
