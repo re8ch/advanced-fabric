@@ -24,3 +24,9 @@ jobs:
           --set advancedFabric.networkQuality.enabled=true
           --set advancedFabric.networkQuality.dns.shadowEnabled=true
           --set advancedFabric.networkQuality.doh.enabled=true >/dev/null
+      - name: Render authoritative Advanced Fabric DNS
+        run: >-
+          helm template advanced-fabric charts/re8ch-advanced-fabric --namespace kube-system
+          --set advancedFabric.enabled=true
+          --set advancedFabric.dns.enabled=true
+          --set advancedFabric.dns.migration.phase=active >/dev/null

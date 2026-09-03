@@ -54,6 +54,17 @@ advancedFabric:
     enabled: false
   controller:
     nodeSelector: {}
+  dns:
+    enabled: false
+    image: python:3.13-alpine@sha256:540c7d91f98ff6880174c40e99067bf5941eb54d818a7a5e094d188b196a934d
+    replicas: 3
+    pdbMinAvailable: 2
+    clusterDomain: cluster.local
+    ttlSeconds: 30
+    upstreams: [223.5.5.5, 119.29.29.29, 1.1.1.1]
+    service: {name: advanced-fabric-dns, clusterIP: 10.43.65.40}
+    doh: {serviceName: advanced-fabric-doh, caSecretName: advanced-fabric-doh-tls}
+    migration: {phase: shadow}
   networkQuality:
     enabled: false
     # Observe and retain a baseline before turning measurements into gates.

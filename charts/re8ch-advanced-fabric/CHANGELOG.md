@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.0
+
+- Make Advanced Fabric DNS authoritative for Kubernetes Service discovery over UDP/TCP 53 and DoH.
+- Watch Services and EndpointSlices directly for ClusterIP, ExternalName, headless endpoint and SRV records.
+- Remove all runtime dependencies on the K3s CoreDNS Deployment, ConfigMap, Corefile and NodeHosts.
+- Add fixed service-IP, migration-phase, HA rollout and readiness controls.
+
 ## 0.10.1
 
 - Make observe-only host agents strictly read-only: route, WireGuard and FRR
