@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.6
+
+- Allow one authoritative DNS replica to become unavailable during rolling
+  updates, avoiding a surge/anti-affinity deadlock on an exact three-node pool.
+- Support an ordered list of direct Kubernetes API endpoints, avoiding a
+  circular dependency on the Service dataplane and failing over by IP.
+
 ## 0.11.5
 
 - Expose authoritative DNS node selector and affinity so operators can exclude

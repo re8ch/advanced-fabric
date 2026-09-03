@@ -20,7 +20,8 @@ CLUSTER_DOMAIN = os.getenv("CLUSTER_DOMAIN", "cluster.local").strip(".")
 UPSTREAMS = [x for x in os.getenv("UPSTREAMS", "223.5.5.5,119.29.29.29,1.1.1.1").split(",") if x]
 CONDITIONAL_FORWARDERS = {zone.rstrip(".").lower() + ".": servers for zone, servers in
                           json.loads(os.getenv("CONDITIONAL_FORWARDERS", "{}")).items()}
-API = "https://%s:%s" % (os.environ.get("KUBERNETES_SERVICE_HOST", ""), os.environ.get("KUBERNETES_SERVICE_PORT_HTTPS", ""))
+DEFAULT_API = "https://%s:%s" % (os.environ.get("KUBERNETES_SERVICE_HOST", ""), os.environ.get("KUBERNETES_SERVICE_PORT_HTTPS", ""))
+APIS = [value.rstrip("/") for value in os.getenv("KUBERNETES_API_ENDPOINTS", DEFAULT_API).split(",") if value]
 STATIC_RECORDS_FILE = os.getenv("STATIC_RECORDS_FILE", "")
 BIND_ADDRESS = os.getenv("BIND_ADDRESS", "0.0.0.0")
 ENABLE_DOH = os.getenv("ENABLE_DOH", "true").lower() == "true"
@@ -127,9 +128,15 @@ class KubernetesIndex:
 
     def _request(self, path, timeout=310):
         token = open(TOKEN_PATH, encoding="utf-8").read().strip()
-        req = urllib.request.Request(API + path, headers={"Authorization": "Bearer " + token})
         context = ssl.create_default_context(cafile=CA_PATH)
-        return urllib.request.urlopen(req, context=context, timeout=timeout)
+        last_error = RuntimeError("no Kubernetes API endpoint configured")
+        for api in APIS:
+            try:
+                req = urllib.request.Request(api + path, headers={"Authorization": "Bearer " + token})
+                return urllib.request.urlopen(req, context=context, timeout=timeout)
+            except OSError as exc:
+                last_error = exc
+        raise last_error
 
     @staticmethod
     def slice_key(item):
