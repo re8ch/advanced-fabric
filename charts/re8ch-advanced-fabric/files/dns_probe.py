@@ -31,7 +31,7 @@ with socket.create_connection((server, 53), timeout=5) as tcp:
 
 encoded = base64.urlsafe_b64encode(query).rstrip(b"=").decode()
 context = ssl.create_default_context(cafile="/tls/ca.crt")
-with urllib.request.urlopen("https://advanced-fabric-doh.kube-system.svc.cluster.local/dns-query?dns=" + encoded,
+with urllib.request.urlopen("https://%s/dns-query?dns=%s" % (server, encoded),
                             context=context, timeout=5) as response:
     valid(response.read())
 print("advanced-fabric-dns UDP/TCP/DoH health check passed")

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.2
+
+- Make the Helm health hook bootstrap-safe by testing DoH directly through the
+  fixed DNS Service IP and include that IP in the certificate SANs.
+- Correct the hook cleanup annotation and retain the pre-0.11 ServiceAccount so
+  an in-flight rollback can complete during migration.
+
 ## 0.11.1
 
 - Preserve explicit private-zone conditional forwarding with longest-suffix matching.

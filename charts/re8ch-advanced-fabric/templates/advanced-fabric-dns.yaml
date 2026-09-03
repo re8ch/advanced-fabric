@@ -3,6 +3,13 @@ apiVersion: v1
 kind: ServiceAccount
 metadata: {name: advanced-fabric-dns, namespace: kube-system}
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  # Keep rollback to pre-0.11 releases functional during the migration window.
+  name: advanced-fabric-doh
+  namespace: kube-system
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata: {name: advanced-fabric-dns}
@@ -36,6 +43,7 @@ spec:
   dnsNames:
     - {{ .Values.advancedFabric.dns.doh.serviceName }}.kube-system.svc
     - {{ .Values.advancedFabric.dns.doh.serviceName }}.kube-system.svc.{{ .Values.advancedFabric.dns.clusterDomain }}
+  ipAddresses: [{{ .Values.advancedFabric.dns.service.clusterIP | quote }}]
   issuerRef: {name: advanced-fabric-dns-selfsigned, kind: Issuer}
 ---
 apiVersion: v1
@@ -120,6 +128,7 @@ spec:
     - {name: dns, port: 53, targetPort: dns, protocol: UDP}
     - {name: dns-tcp, port: 53, targetPort: dns-tcp, protocol: TCP}
     - {name: metrics, port: 9153, targetPort: metrics, protocol: TCP}
+    - {name: https, port: 443, targetPort: doh, protocol: TCP}
 ---
 apiVersion: v1
 kind: Service
@@ -133,7 +142,7 @@ kind: Pod
 metadata:
   name: advanced-fabric-dns-health-check
   namespace: kube-system
-  annotations: {"helm.sh/hook": test, "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded}
+  annotations: {"helm.sh/hook": test, "helm.sh/hook-delete-policy": "before-hook-creation,hook-succeeded"}
 spec:
   restartPolicy: Never
   containers:
