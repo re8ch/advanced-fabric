@@ -66,6 +66,14 @@ class DNSServerTest(unittest.TestCase):
         self.assertEqual(dns.INDEX.records("external.default.svc.cluster.local.", dns.Q_A),
                          [(dns.Q_CNAME, "example.net.")])
 
+    def test_in_cluster_external_name_flattens_address_records(self):
+        dns.INDEX.services[("pilot", "alias")] = {"spec": {
+            "externalName": "api.default.svc.cluster.local"}}
+        dns.INDEX.services[("default", "api")] = {"spec": {"clusterIPs": ["10.43.2.3"]}}
+        self.assertEqual(dns.INDEX.records("alias.pilot.svc.cluster.local.", dns.Q_A),
+                         [(dns.Q_A, "10.43.2.3")])
+        self.assertEqual(dns.INDEX.records("alias.pilot.svc.cluster.local.", dns.Q_AAAA), [])
+
     def test_unready_endpoint_is_excluded(self):
         dns.INDEX.services[("default", "api")] = {"spec": {"clusterIP": "None"}}
         dns.INDEX.slices[("default", "api")] = {"slice": {"metadata": {"uid": "slice"}, "ports": [],
