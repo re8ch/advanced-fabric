@@ -33,6 +33,16 @@ class DNSServerTest(unittest.TestCase):
         self.assertEqual(struct.unpack("!H", response[6:8])[0], 1)
         self.assertIn(socket_bytes("10.43.2.3"), response)
 
+    def test_existing_ipv4_service_returns_nodata_for_aaaa(self):
+        dns.INDEX.services[("default", "api")] = {"spec": {"clusterIPs": ["10.43.2.3"]}}
+        response = dns.answer(query("api.default.svc.cluster.local", dns.Q_AAAA))
+        self.assertEqual(response[3] & 0x0F, 0)
+        self.assertEqual(struct.unpack("!H", response[6:8])[0], 0)
+
+    def test_missing_service_returns_nxdomain(self):
+        response = dns.answer(query("missing.default.svc.cluster.local", dns.Q_A))
+        self.assertEqual(response[3] & 0x0F, 3)
+
     def test_headless_service_and_endpoint_hostname(self):
         dns.INDEX.services[("db", "postgres")] = {"spec": {"clusterIP": "None"}}
         dns.INDEX.slices[("db", "postgres")] = {"slice": {

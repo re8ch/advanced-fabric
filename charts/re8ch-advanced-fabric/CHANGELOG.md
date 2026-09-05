@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.7
+
+- Return authoritative NODATA for existing Kubernetes Service names that do not
+  have the requested address family, preserving valid IPv4 resolution for
+  musl clients that query A and AAAA together.
+
 ## 0.11.6
 
 - Allow one authoritative DNS replica to become unavailable during rolling
