@@ -29,6 +29,7 @@ TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 Q_A, Q_NS, Q_CNAME, Q_SOA, Q_PTR, Q_AAAA, Q_SRV = 1, 2, 5, 6, 12, 28, 33
 CLASS_IN, TTL = 1, int(os.getenv("TTL", "30"))
+NAME_NOT_FOUND = object()
 METRICS_LOCK = threading.Lock()
 METRICS = {"queries": 0, "failures": 0, "forwarded": 0}
 
@@ -213,7 +214,7 @@ class KubernetesIndex:
             return None
         labels = name[:-len(suffix)].strip(".").split(".")
         if len(labels) < 2:
-            return []
+            return NAME_NOT_FOUND
         port_name = protocol = None
         if labels[0].startswith("_") and len(labels) == 4:
             port_name, protocol, service, namespace = labels
@@ -226,7 +227,7 @@ class KubernetesIndex:
             svc = self.services.get((namespace, service))
             slices = list(self.slices.get((namespace, service), {}).values())
         if not svc:
-            return []
+            return NAME_NOT_FOUND
         spec = svc.get("spec", {})
         external = spec.get("externalName")
         if external:
@@ -302,7 +303,7 @@ class StaticIndex:
             records = self.records_by_name.get(name)
         if records is None:
             zone = os.getenv("STATIC_ZONE", "").rstrip(".").lower() + "."
-            return [] if zone != "." and name.endswith(zone) else None
+            return NAME_NOT_FOUND if zone != "." and name.endswith(zone) else None
         if qtype == 255:
             return records
         return [record for record in records if record[0] == qtype or record[0] == Q_CNAME]
@@ -348,8 +349,13 @@ def answer(packet):
                 return response
             metric("failures")
             return packet[:2] + b"\x81\x82" + packet[4:6] + b"\0\0\0\0\0\0" + raw_question
+        if records is NAME_NOT_FOUND:
+            return packet[:2] + b"\x85\x83" + struct.pack("!HHHH", 1, 0, 0, 0) + raw_question
         payload = b"".join(rr(name, kind, value) for kind, value in records)
-        flags = b"\x85\x80" if records else b"\x85\x83"
+        # An existing name without the requested record type is NODATA, not
+        # NXDOMAIN. musl's getaddrinfo otherwise rejects a valid A result when
+        # the parallel AAAA lookup receives NXDOMAIN.
+        flags = b"\x85\x80"
         return packet[:2] + flags + struct.pack("!HHHH", 1, len(records), 0, 0) + raw_question + payload
     except (ValueError, UnicodeError):
         metric("failures")
