@@ -114,3 +114,6 @@
   remains disabled until a separate acceptance gate passes.
 - Standardizes the Harbor/OCI endpoint as `https://registry.re8ch.com` on port
   443. No third-party mirror credentials are packaged.
+## 0.11.8
+
+- Flatten in-cluster ExternalName address lookups so Go clients resolve Kubernetes service aliases reliably.

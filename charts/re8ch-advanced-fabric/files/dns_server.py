@@ -231,7 +231,16 @@ class KubernetesIndex:
         spec = svc.get("spec", {})
         external = spec.get("externalName")
         if external:
-            return [(Q_CNAME, external.rstrip(".") + ".")]
+            target = external.rstrip(".") + "."
+            # Flatten in-cluster ExternalName aliases for address lookups. Go's
+            # resolver treats a CNAME-only A/AAAA response from this
+            # authoritative server as name-not-found instead of following it,
+            # which breaks Kubernetes clients using ExternalName Services.
+            if target.endswith(suffix) and qtype in (Q_A, Q_AAAA, 255):
+                target_records = self.records(target, qtype)
+                if target_records is not NAME_NOT_FOUND and target_records is not None:
+                    return target_records
+            return [(Q_CNAME, target)]
         cluster_ips = [x for x in spec.get("clusterIPs", [spec.get("clusterIP")]) if x and x != "None"]
         if cluster_ips and qtype == Q_SRV:
             target = "%s.%s.svc.%s." % (service, namespace, CLUSTER_DOMAIN)
