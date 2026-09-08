@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.17.0
+
+- Bound freshness to the actual sampling duration and collector cadence.
+- Probe path endpoints concurrently so degraded targets cannot serialize an
+  entire node matrix beyond its own freshness window.
+- Keep planner tasks pending until their formal evidence gap is actually closed.
+- Report topology gaps by dependency dimension.
+- Measure explicitly declared same-destination alternatives for O; unrelated
+  target nodes remain non-comparable.
+
 ## 0.16.0
 
 - Close the component loop with a controller-owned `NetworkPathAssessment` API.

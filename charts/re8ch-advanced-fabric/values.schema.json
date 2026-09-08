@@ -92,6 +92,7 @@
             "intervalSeconds": {"type": "integer", "minimum": 10, "maximum": 300},
             "timeoutSeconds": {"type": "number", "minimum": 0.2, "maximum": 10},
             "samples": {"type": "integer", "minimum": 1, "maximum": 20},
+            "maximumConcurrency": {"type": "integer", "minimum": 1, "maximum": 64},
             "freshnessSeconds": {"type": "integer", "minimum": 30, "maximum": 900},
             "minimumHistorySamples": {"type": "integer", "minimum": 2, "maximum": 100},
             "minimumCoverageRatio": {"type": "number", "minimum": 0, "maximum": 1},
