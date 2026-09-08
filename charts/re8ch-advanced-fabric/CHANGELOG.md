@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.19.0
+
+- Add opt-in two-phase adoption from a legacy IngressClass: render and validate
+  the Gateway API shadow route first, then change the source Ingress class.
+- Resolve named Service ports and translate literal `ImplementationSpecific`
+  paths while continuing to reject regex-like paths and unsupported middleware.
+- Select every matching HTTP/HTTPS Gateway listener and support explicit
+  namespace/name exclusions for exceptional applications.
+
 ## 0.18.0
 
 - Add the opt-in `advanced-fabric` IngressClass and a fail-closed compatibility

@@ -30,8 +30,25 @@ class VirtualIngressTest(unittest.TestCase):
             module.translate(ingress({"traefik.ingress.kubernetes.io/router.middlewares": "auth@kubernetescrd"}))
 
     def test_rejects_implementation_specific_path(self):
-        with self.assertRaisesRegex(ValueError, "ImplementationSpecific"):
-            module.translate(ingress(path_type="ImplementationSpecific"))
+        item = ingress(path_type="ImplementationSpecific")
+        item["spec"]["rules"][0]["http"]["paths"][0]["path"] = "/literal"
+        route = module.translate(item)
+        self.assertEqual(route["spec"]["rules"][0]["matches"][0]["path"],
+                         {"type": "PathPrefix", "value": "/literal"})
+
+    def test_rejects_regex_like_implementation_specific_path(self):
+        item = ingress(path_type="ImplementationSpecific")
+        item["spec"]["rules"][0]["http"]["paths"][0]["path"] = "/items/(.*)"
+        with self.assertRaisesRegex(ValueError, "not a literal prefix"):
+            module.translate(item)
+
+    def test_gateway_parent_refs_select_matching_http_and_https_listeners(self):
+        gateway = {"spec": {"listeners": [
+            {"name": "http", "protocol": "HTTP"},
+            {"name": "supabase-https", "protocol": "HTTPS", "hostname": "supabase.example.com"},
+            {"name": "other-https", "protocol": "HTTPS", "hostname": "other.example.com"}]}}
+        refs = module.gateway_parent_refs(gateway, ["supabase.example.com"])
+        self.assertEqual([item["sectionName"] for item in refs], ["http", "supabase-https"])
 
     def test_route_ready_requires_accepted_and_resolved_refs_for_current_generation(self):
         route = {"metadata": {"generation": 2}, "status": {"parents": [{"conditions": [

@@ -2,6 +2,7 @@
 """Translate explicitly opted-in legacy Ingress objects to Gateway API HTTPRoutes."""
 
 import json
+import copy
 import os
 import ssl
 import time
@@ -15,6 +16,9 @@ GATEWAY_NAMESPACE = os.environ.get("GATEWAY_NAMESPACE", "kube-system")
 DEFAULT_SECTION = os.environ.get("GATEWAY_SECTION", "http")
 PUBLIC_ADDRESS = os.environ.get("PUBLIC_ADDRESS", "")
 INTERVAL = int(os.environ.get("RECONCILE_INTERVAL_SECONDS", "15"))
+ADOPT_SOURCE_CLASS = os.environ.get("ADOPT_SOURCE_CLASS", "")
+ADOPT_ENABLED = os.environ.get("ADOPT_ENABLED", "false").lower() == "true"
+EXCLUSIONS = set(filter(None, os.environ.get("ADOPT_EXCLUSIONS", "").split(",")))
 HOST = os.environ.get("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
 PORT = os.environ.get("KUBERNETES_SERVICE_PORT_HTTPS", "443")
 BASE = f"https://{HOST}:{PORT}"
@@ -42,6 +46,53 @@ def route_name(ingress):
     return (ingress["metadata"]["name"] + "-advfab")[:63].rstrip("-")
 
 
+def normalize_named_ports(ingress):
+    normalized = copy.deepcopy(ingress)
+    namespace = normalized["metadata"]["namespace"]
+    cache = {}
+    for rule in normalized.get("spec", {}).get("rules", []):
+        for path in rule.get("http", {}).get("paths", []):
+            service = path.get("backend", {}).get("service", {})
+            port = service.get("port", {})
+            if "name" not in port:
+                continue
+            name = service.get("name")
+            if name not in cache:
+                cache[name] = request("GET", f"/api/v1/namespaces/{namespace}/services/{name}")
+            matches = [item["port"] for item in cache[name].get("spec", {}).get("ports", [])
+                       if item.get("name") == port["name"]]
+            if len(matches) != 1:
+                raise ValueError(f"Service {name} does not expose one port named {port['name']}")
+            service["port"] = {"number": matches[0]}
+    return normalized
+
+
+def listener_matches(listener_host, route_host):
+    if not listener_host:
+        return True
+    if listener_host.startswith("*."):
+        return route_host.endswith(listener_host[1:]) and route_host.count(".") == listener_host.count(".")
+    return listener_host == route_host
+
+
+def gateway_parent_refs(gateway, hostnames, explicit_section=""):
+    sections = []
+    for listener in gateway.get("spec", {}).get("listeners", []):
+        name = listener.get("name")
+        if explicit_section and name != explicit_section:
+            continue
+        if listener.get("protocol") not in {"HTTP", "HTTPS"}:
+            continue
+        if any(listener_matches(listener.get("hostname"), host) for host in hostnames):
+            sections.append(name)
+    if explicit_section and not sections:
+        raise ValueError(f"Gateway listener {explicit_section} does not match any Ingress hostname")
+    if not sections:
+        raise ValueError("no HTTP/HTTPS Gateway listener matches the Ingress hostnames")
+    return [{"name": GATEWAY_NAME, "namespace": GATEWAY_NAMESPACE, "sectionName": name}
+            for name in sorted(set(sections))]
+
+
 def translate(ingress):
     """Return an owned HTTPRoute or reject semantics we cannot preserve."""
     meta, spec = ingress.get("metadata", {}), ingress.get("spec", {})
@@ -65,10 +116,15 @@ def translate(ingress):
             if not backend.get("name") or "number" not in port:
                 raise ValueError("every backend must reference a Service and numeric port")
             path_type = path.get("pathType", "Prefix")
+            value = path.get("path") or "/"
+            if path_type == "ImplementationSpecific":
+                if not value.startswith("/") or any(char in value for char in "()[]{}*+?|"):
+                    raise ValueError("ImplementationSpecific path is not a literal prefix")
+                path_type = "Prefix"
             if path_type not in {"Prefix", "Exact"}:
-                raise ValueError("ImplementationSpecific paths are not supported")
+                raise ValueError(f"unsupported pathType {path_type}")
             match_type = "PathPrefix" if path_type == "Prefix" else "Exact"
-            rules.append({"matches": [{"path": {"type": match_type, "value": path.get("path") or "/"}}],
+            rules.append({"matches": [{"path": {"type": match_type, "value": value}}],
                           "backendRefs": [{"name": backend["name"], "port": port.get("number", port.get("name"))}]})
     if not rules:
         raise ValueError("at least one HTTP path is required")
@@ -122,12 +178,23 @@ def upsert_route(route):
 
 def reconcile():
     ingresses = request("GET", "/apis/networking.k8s.io/v1/ingresses").get("items", [])
-    selected = [item for item in ingresses if item.get("spec", {}).get("ingressClassName") == CLASS]
+    gateway = request("GET", f"/apis/gateway.networking.k8s.io/v1/namespaces/{GATEWAY_NAMESPACE}/gateways/{GATEWAY_NAME}")
+    selected = [item for item in ingresses if item.get("spec", {}).get("ingressClassName") == CLASS or
+                (ADOPT_ENABLED and item.get("spec", {}).get("ingressClassName") == ADOPT_SOURCE_CLASS)]
     for ingress in selected:
+        identity = f"{ingress['metadata']['namespace']}/{ingress['metadata']['name']}"
+        if identity in EXCLUSIONS:
+            continue
         try:
-            route = translate(ingress)
+            route = translate(normalize_named_ports(ingress))
+            explicit = ingress.get("metadata", {}).get("annotations", {}).get("networking.re8ch.com/gateway-section", "")
+            route["spec"]["parentRefs"] = gateway_parent_refs(gateway, route["spec"]["hostnames"], explicit)
             observed = upsert_route(route)
             if route_ready(observed):
+                if ingress.get("spec", {}).get("ingressClassName") != CLASS:
+                    request("PATCH", f"/apis/networking.k8s.io/v1/namespaces/{ingress['metadata']['namespace']}/ingresses/{ingress['metadata']['name']}",
+                            {"metadata": {"annotations": {"networking.re8ch.com/adopted-from-class": ADOPT_SOURCE_CLASS}},
+                             "spec": {"ingressClassName": CLASS}})
                 set_ingress_state(ingress, "Ready", f"HTTPRoute {route['metadata']['name']} accepted")
             else:
                 set_ingress_state(ingress, "Pending", f"HTTPRoute {route['metadata']['name']} awaits Gateway acceptance")

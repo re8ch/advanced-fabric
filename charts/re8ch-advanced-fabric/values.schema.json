@@ -49,7 +49,7 @@
         },
         "virtualIngress": {
           "type": "object",
-          "required": ["enabled", "className", "gateway", "publicAddress", "reconcileIntervalSeconds"],
+          "required": ["enabled", "className", "gateway", "publicAddress", "reconcileIntervalSeconds", "adoption"],
           "properties": {
             "enabled": {"type": "boolean"},
             "className": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"},
@@ -64,6 +64,15 @@
             },
             "publicAddress": {"type": "string"},
             "reconcileIntervalSeconds": {"type": "integer", "minimum": 5, "maximum": 300}
+            ,"adoption": {
+              "type": "object",
+              "required": ["enabled", "sourceClassName", "exclusions"],
+              "properties": {
+                "enabled": {"type": "boolean"},
+                "sourceClassName": {"type": "string", "minLength": 1},
+                "exclusions": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z0-9-]+/[a-z0-9-]+$"}}
+              }
+            }
           }
         },
         "dns": {
