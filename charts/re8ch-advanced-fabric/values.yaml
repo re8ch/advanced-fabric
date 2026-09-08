@@ -78,6 +78,7 @@ advancedFabric:
     timeoutSeconds: 2
     samples: 3
     freshnessSeconds: 120
+    minimumHistorySamples: 3
     minimumCoverageRatio: 1.0
     maximumLossRatio: 0.0
     maximumRegionalP95Ms: 20

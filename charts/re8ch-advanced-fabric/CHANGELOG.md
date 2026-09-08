@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Add a controller-side Evidence Planner that turns missing optimality,
+  stability, independence, or freshness evidence into generation-bound probe
+  tasks. Host and pod collectors acknowledge completed task IDs so inference,
+  recommendation, and post-action validation can be recomputed continuously.
+- Derive active Advanced Fabric membership from Kubernetes Node objects joined
+  with declared topology metadata. Retired inventory entries no longer count
+  toward measurement coverage, peer selection, desired agent state, or API
+  eligibility, and stale desired-state keys are removed automatically.
+
 ## 0.12.0
 
 - Replace snapshot freshness and candidate-peer count proxies with an explicit

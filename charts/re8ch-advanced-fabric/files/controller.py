@@ -68,6 +68,112 @@ def parse_time(value):
     return datetime.datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
 
 
+def cluster_inventory(spec_nodes, node_objects):
+    """Join declared topology metadata to Kubernetes membership facts."""
+    present = {item.get("metadata", {}).get("name") for item in node_objects
+               if not item.get("metadata", {}).get("deletionTimestamp")}
+    active = [node for node in spec_nodes if node.get("name") in present]
+    return active, sorted(node.get("name") for node in spec_nodes if node.get("name") not in present)
+
+
+def measurement_index(configmaps, active_names, freshness, now):
+    indexed = {}
+    for item in configmaps:
+        try:
+            result = json.loads(item.get("data", {}).get("result.json", "{}"))
+            key = (result["sourceNode"], result["sourcePlane"])
+            if key[0] in active_names:
+                result["fresh"] = now - parse_time(result["observedAt"]) <= freshness
+                indexed[key] = result
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            continue
+    return indexed
+
+
+def evidence_plan(spec_nodes, node_objects, configmaps, standard, generation, now=None):
+    """Turn explicit O/S/I evidence gaps into collector-executable probe tasks."""
+    now = time.time() if now is None else now
+    active, retired = cluster_inventory(spec_nodes, node_objects)
+    names = {node["name"] for node in active}
+    freshness = int(standard.get("freshnessSeconds", 120))
+    minimum_history = int(standard.get("minimumHistorySamples", 3))
+    evidence = measurement_index(configmaps, names, freshness, now)
+    tasks = []
+    for node in active:
+        for plane in ("host", "pod"):
+            result = evidence.get((node["name"], plane))
+            missing = []
+            if not result or not result.get("fresh"):
+                missing.extend(("optimality", "freshness"))
+            if not result or int(result.get("history", {}).get("windowSamples") or 0) < minimum_history:
+                missing.append("stability")
+            independent = [peer for peer in active if peer["name"] != node["name"] and all(
+                peer.get(key) not in (None, "", node.get(key))
+                for key in ("provider", "asn", "failureDomain", "gateway", "tunnel"))]
+            if not independent:
+                missing.append("independence")
+            failed = [] if not result else [path for path in result.get("paths", [])
+                                            if float(path.get("lossRatio", 0)) > 0]
+            if missing or failed:
+                task_id = "%s-%s-%s" % (generation, node["name"], plane)
+                tasks.append({"id": task_id, "sourceNode": node["name"], "sourcePlane": plane,
+                              "kind": "shadow-path" if failed else "evidence-gap",
+                              "missingEvidence": sorted(set(missing)),
+                              "targetNodes": sorted(names),
+                              "candidateNodes": sorted(peer["name"] for peer in independent),
+                              "validateAfterAction": bool(failed)})
+    completed = {task_id for result in evidence.values() if result.get("fresh")
+                 for task_id in result.get("completedTaskIds", [])}
+    return {"schemaVersion": "networking.re8ch.com/evidence-plan-v1alpha1",
+            "generation": generation, "generatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
+            "activeNodes": sorted(names), "retiredInventoryNodes": retired,
+            "tasks": tasks, "completedTaskIds": sorted(completed),
+            "pendingTaskIds": sorted(task["id"] for task in tasks if task["id"] not in completed)}
+
+
+def node_inferences(plan, configmaps, standard, now=None):
+    """Recompute bounded diagnoses and recommendations from collected evidence."""
+    now = time.time() if now is None else now
+    evidence = measurement_index(configmaps, set(plan["activeNodes"]),
+                                 int(standard.get("freshnessSeconds", 120)), now)
+    pending = set(plan["pendingTaskIds"])
+    results = []
+    for name in plan["activeNodes"]:
+        host, pod = evidence.get((name, "host")), evidence.get((name, "pod"))
+        host_dns = sum(float(x.get("failureRatio", 0)) > 0 for x in (host or {}).get("dns", []))
+        pod_dns = sum(float(x.get("failureRatio", 0)) > 0 for x in (pod or {}).get("dns", []))
+        paths = (host or {}).get("paths", []) + (pod or {}).get("paths", [])
+        loss = max([float(x.get("lossRatio", 0)) for x in paths] or [0])
+        own_pending = sorted(x for x in pending if ("-%s-" % name) in x)
+        if not host or not pod or not host.get("fresh") or not pod.get("fresh"):
+            diagnosis, recommendation, action = "evidence-incomplete", "collect missing host/pod evidence", "measure"
+        elif host_dns and not pod_dns:
+            diagnosis, recommendation, action = "host-pod-dns-divergence", "repair host resolver path", "repair-host-resolver"
+        elif loss > 0:
+            diagnosis, recommendation, action = "dataplane-degradation", "compare an independent shadow path", "shadow-probe"
+        else:
+            diagnosis, recommendation, action = "measured-healthy", "retain current path", "hold"
+        results.append({"node": name, "diagnosis": diagnosis, "recommendation": recommendation,
+                        "action": action, "confidence": "low" if own_pending else "high",
+                        "validation": {"state": "pending" if own_pending else "measured",
+                                       "pendingTaskIds": own_pending}})
+    return results
+
+
+def upsert_configmap(name, labels, payload):
+    obj = {"apiVersion": "v1", "kind": "ConfigMap",
+           "metadata": {"name": name, "namespace": "kube-system", "labels": labels},
+           "data": {"plan.json" if name.endswith("plan") else "inference.json":
+                    json.dumps(payload, separators=(",", ":"), sort_keys=True)}}
+    path = "/api/v1/namespaces/kube-system/configmaps/%s" % name
+    try:
+        request("PATCH", path, obj)
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
+            raise
+        request("POST", "/api/v1/namespaces/kube-system/configmaps", obj)
+
+
 def network_quality(configmaps, inventory_nodes, standard, now=None):
     """Aggregate directed measurements and return deterministic gate evidence."""
     now = time.time() if now is None else now
@@ -195,21 +301,25 @@ def reconcile():
     if quality_enabled:
         probe_configmaps = request("GET", "/api/v1/namespaces/kube-system/configmaps?labelSelector="
                                    "app.kubernetes.io%2Fcomponent%3Dnetwork-quality").get("items", [])
-    node_index = {node["name"]: node for node in spec["nodes"]}
+    active_nodes, retired_nodes = cluster_inventory(spec["nodes"], node_objects)
+    node_index = {node["name"]: node for node in active_nodes}
+    declared_index = {node["name"]: node for node in spec["nodes"]}
     control_plane_api = spec.get("controlPlaneApi", {"enabled": False})
-    eligible_api_nodes = set(control_plane_api.get("eligibleNodes", []))
-    guarded_api_nodes = set(control_plane_api.get("guardedNodes", []))
+    configured_eligible_api_nodes = set(control_plane_api.get("eligibleNodes", []))
+    configured_guarded_api_nodes = set(control_plane_api.get("guardedNodes", []))
+    eligible_api_nodes = configured_eligible_api_nodes & set(node_index)
+    guarded_api_nodes = configured_guarded_api_nodes & eligible_api_nodes
     api_operations = {item["name"]: item for item in control_plane_api.get("nodeOperations", [])}
-    unknown_api_nodes = sorted(eligible_api_nodes - set(node_index))
+    unknown_api_nodes = sorted(configured_eligible_api_nodes - set(declared_index))
     if control_plane_api.get("enabled") and unknown_api_nodes:
         raise ValueError(f"controlPlaneApi references unknown nodes: {','.join(unknown_api_nodes)}")
-    unknown_guarded_nodes = sorted(guarded_api_nodes - eligible_api_nodes)
+    unknown_guarded_nodes = sorted(configured_guarded_api_nodes - configured_eligible_api_nodes)
     if unknown_guarded_nodes:
         raise ValueError(f"guardedNodes must be eligible: {','.join(unknown_guarded_nodes)}")
-    incomplete = [node["name"] for node in spec["nodes"] if not node.get("inventoryComplete")]
-    unavailable = [node["name"] for node in spec["nodes"] if node["role"] == "spine" and
+    incomplete = [node["name"] for node in active_nodes if not node.get("inventoryComplete")]
+    unavailable = [node["name"] for node in active_nodes if node["role"] == "spine" and
                    (not node.get("inventoryComplete") or not ready.get(node["name"], False))]
-    quality = network_quality(probe_configmaps, [node["name"] for node in spec["nodes"]], quality_standard) if quality_enabled else {
+    quality = network_quality(probe_configmaps, list(node_index), quality_standard) if quality_enabled else {
         "networkReady": True, "dnsReady": True, "dohReady": True, "disabled": True}
     quality_gate_ready = (not quality_enforced or
                           (quality["networkReady"] and quality["dnsReady"] and quality["dohReady"]))
@@ -244,7 +354,7 @@ def reconcile():
     desired = {"apiVersion": "v1", "kind": "ConfigMap",
         "metadata": {"name": "advanced-fabric-desired", "namespace": "kube-system",
                      "labels": {"app.kubernetes.io/name": "re8ch-advanced-fabric"}},
-        "data": {name + ".json": json.dumps({"node": name, "mode": spec["mode"],
+        "data": dict({name + ".json": json.dumps({"node": name, "mode": spec["mode"],
                   "applyEnabled": effective_apply,
                   "controlPlaneApi": dict(control_plane_api, eligible=name in eligible_api_nodes),
                   "transaction": make_api_transaction(name, control_plane_api, api_operations.get(name, {}),
@@ -252,21 +362,35 @@ def reconcile():
                   "podProfiles": profiles, "pathRankings": rankings.get(name, {}),
                   "peers": [{key: peer.get(key) for key in ("name", "internalIP", "acceleratedIP", "podCIDR", "role", "class",
                                                                   "provider", "region", "failureDomain", "gateway", "tunnel", "asn")}
-                            for peer in spec["nodes"] if peer.get("name") != name],
+                            for peer in active_nodes if peer.get("name") != name],
                   "weightedEcmp": bool(spec.get("weightedEcmp", {}).get("enabled"))}, sort_keys=True)
-                 for name, profiles in resolved.items()}}
+                 for name, profiles in resolved.items()},
+                 **{name + ".json": None for name in retired_nodes})}
     try:
         request("PATCH", "/api/v1/namespaces/kube-system/configmaps/advanced-fabric-desired", desired)
     except urllib.error.HTTPError as exc:
         if exc.code != 404:
             raise
         request("POST", "/api/v1/namespaces/kube-system/configmaps", desired)
+    plan = evidence_plan(spec["nodes"], node_objects, probe_configmaps, quality_standard,
+                         fabric["metadata"].get("generation", 0))
+    inferences = node_inferences(plan, probe_configmaps, quality_standard)
+    upsert_configmap("advanced-fabric-evidence-plan",
+                     {"app.kubernetes.io/name": "re8ch-advanced-fabric",
+                      "app.kubernetes.io/component": "evidence-planner"}, plan)
+    upsert_configmap("advanced-fabric-inference",
+                     {"app.kubernetes.io/name": "re8ch-advanced-fabric",
+                      "app.kubernetes.io/component": "inference-engine"},
+                     {"generation": plan["generation"], "nodes": inferences})
     for (namespace, name), status in policy_status.items():
         request("PATCH", f"/apis/networking.re8ch.com/v1alpha1/namespaces/{namespace}/trafficpolicies/{name}/status", {"status": status})
     api_ready_nodes = sorted(name for name in eligible_api_nodes if ready.get(name, False))
     status = {"observedGeneration": fabric["metadata"].get("generation", 0),
               "mode": spec["mode"], "applyEnabled": effective_apply,
               "networkQualityEnforced": quality_enforced,
+              "activeNodes": sorted(node_index), "retiredInventoryNodes": retired_nodes,
+              "evidencePlanner": {"generation": plan["generation"], "tasks": len(plan["tasks"]),
+                                  "pendingTasks": len(plan["pendingTaskIds"])},
               "inventoryIncomplete": incomplete, "ineligibleSpines": unavailable,
               "controlPlaneApi": {"enabled": bool(control_plane_api.get("enabled")),
                                   "vip": control_plane_api.get("vip", ""),
