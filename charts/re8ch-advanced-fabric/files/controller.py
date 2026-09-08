@@ -76,6 +76,10 @@ def cluster_inventory(spec_nodes, node_objects):
     return active, sorted(node.get("name") for node in spec_nodes if node.get("name") not in present)
 
 
+def stale_desired_nodes(data, active_names):
+    return sorted(key[:-5] for key in (data or {}) if key.endswith(".json") and key[:-5] not in active_names)
+
+
 def measurement_index(configmaps, active_names, freshness, now):
     indexed = {}
     for item in configmaps:
@@ -351,6 +355,13 @@ def reconcile():
             "profile": pspec["profile"],
             "selectedNextHops": {item["node"]: rankings.get(item["node"], {}).get(pspec["profile"], [])[:7] for item in matched},
             "lastEvaluationTime": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    try:
+        existing_desired = request("GET", "/api/v1/namespaces/kube-system/configmaps/advanced-fabric-desired")
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
+            raise
+        existing_desired = {}
+    stale_desired = stale_desired_nodes(existing_desired.get("data", {}), set(node_index))
     desired = {"apiVersion": "v1", "kind": "ConfigMap",
         "metadata": {"name": "advanced-fabric-desired", "namespace": "kube-system",
                      "labels": {"app.kubernetes.io/name": "re8ch-advanced-fabric"}},
@@ -365,7 +376,7 @@ def reconcile():
                             for peer in active_nodes if peer.get("name") != name],
                   "weightedEcmp": bool(spec.get("weightedEcmp", {}).get("enabled"))}, sort_keys=True)
                  for name, profiles in resolved.items()},
-                 **{name + ".json": None for name in retired_nodes})}
+                 **{name + ".json": None for name in sorted(set(retired_nodes + stale_desired))})}
     try:
         request("PATCH", "/api/v1/namespaces/kube-system/configmaps/advanced-fabric-desired", desired)
     except urllib.error.HTTPError as exc:
