@@ -12,6 +12,7 @@ import time
 import urllib.error
 import urllib.request
 import statistics
+import concurrent.futures
 
 
 NODE = os.environ["NODE_NAME"]
@@ -28,6 +29,7 @@ SHADOW_DNS_SERVICE = os.environ.get("SHADOW_DNS_SERVICE", "")
 DNS_SERVICE = os.environ.get("DNS_SERVICE", "advanced-fabric-dns")
 HISTORY_SIZE = int(os.environ.get("PROBE_HISTORY_SIZE", "20"))
 HISTORY = []
+MAX_CONCURRENCY = int(os.environ.get("PROBE_MAX_CONCURRENCY", "24"))
 BASE = "https://%s:%s" % (os.environ["KUBERNETES_SERVICE_HOST"], os.environ["KUBERNETES_SERVICE_PORT_HTTPS"])
 TOKEN = open("/var/run/secrets/kubernetes.io/serviceaccount/token", encoding="utf-8").read().strip()
 CONTEXT = ssl.create_default_context(cafile="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
@@ -58,7 +60,9 @@ def history_summary(history):
     for item in history:
         current = current + 1 if item["lossRatio"] > 0 else 0
         longest = max(longest, current)
-    return {"windowSamples": len(history), "windowSeconds": max(0, (len(history) - 1) * INTERVAL),
+    timestamps = [item.get("completedEpoch") for item in history if item.get("completedEpoch") is not None]
+    window_seconds = max(timestamps) - min(timestamps) if len(timestamps) > 1 else 0
+    return {"windowSamples": len(history), "windowSeconds": round(window_seconds, 3),
             "lossMean": round(statistics.fmean(losses), 4) if losses else None,
             "lossStdDev": round(statistics.pstdev(losses), 4) if len(losses) > 1 else None,
             "p95MeanMs": round(statistics.fmean(latencies), 3) if latencies else None,
@@ -172,7 +176,9 @@ def doh_measure(url, name="kubernetes.default.svc.cluster.local"):
 
 def discover():
     fabric = api("GET", "/apis/networking.re8ch.com/v1alpha1/advancedfabrics/re8ch")
-    inventory_nodes = {item.get("name") for item in fabric.get("spec", {}).get("nodes", [])}
+    inventory = fabric.get("spec", {}).get("nodes", [])
+    inventory_nodes = {item.get("name") for item in inventory}
+    source_spec = next((item for item in inventory if item.get("name") == NODE), {})
     nodes = api("GET", "/api/v1/nodes").get("items", [])
     pods = api("GET", "/api/v1/namespaces/kube-system/pods?labelSelector="
                "app.kubernetes.io%2Fname%3Dre8ch-advanced-fabric-pod-conformance").get("items", [])
@@ -194,7 +200,9 @@ def discover():
         except urllib.error.HTTPError as error:
             if error.code != 404:
                 raise
-    return sorted(targets, key=lambda item: item["node"]), dns_servers
+    alternatives = [item for item in source_spec.get("alternativePaths", []) if item.get("address") and
+                    item.get("targetNode") and item.get("targetPlane") in ("host", "pod")]
+    return sorted(targets, key=lambda item: item["node"]), dns_servers, alternatives
 
 
 def assigned_tasks():
@@ -220,18 +228,32 @@ def serve():
 
 
 def snapshot():
-    targets, dns_servers = discover()
+    started_epoch = time.time()
+    started_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(started_epoch))
+    targets, dns_servers, alternatives = discover()
     plan_generation, tasks = assigned_tasks()
     requested_targets = {name for task in tasks for name in task.get("targetNodes", [])}
     if requested_targets:
         targets = [target for target in targets if target["node"] in requested_targets]
-    paths = []
+    specifications = []
     for target in targets:
         for destination_plane, key in (("host", "hostIP"), ("pod", "podIP")):
             if target.get(key):
-                paths.append({"measurementDefinitionId": "path-quality-v1", "pathRole": "current",
-                              "sourceNode": NODE, "sourcePlane": PLANE, "targetNode": target["node"],
-                              "targetPlane": destination_plane, **measure(target[key])})
+                specifications.append((target, destination_plane, key))
+    def measure_path(specification):
+        target, destination_plane, key = specification
+        return {"measurementDefinitionId": "path-quality-v1", "pathRole": "current",
+                "sourceNode": NODE, "sourcePlane": PLANE, "targetNode": target["node"],
+                "targetPlane": destination_plane, **measure(target[key])}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(MAX_CONCURRENCY, len(specifications)))) as pool:
+        paths = list(pool.map(measure_path, specifications))
+    def measure_alternative(alternative):
+        return {"measurementDefinitionId": "path-quality-v1", "pathRole": "alternative", "feasible": True,
+                "pathId": alternative.get("name"), "sourceNode": NODE, "sourcePlane": PLANE,
+                "targetNode": alternative["targetNode"], "targetPlane": alternative["targetPlane"],
+                **measure(alternative["address"])}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(MAX_CONCURRENCY, len(alternatives)))) as pool:
+        paths.extend(pool.map(measure_alternative, alternatives))
     dns = []
     for role, dns_server in dns_servers:
         if dns_server and dns_server != "None":
@@ -240,11 +262,16 @@ def snapshot():
     path_attempts = sum(item.get("attempts", 0) for item in paths)
     path_successes = sum(item.get("successes", 0) for item in paths)
     successful_p95 = [item["p95Ms"] for item in paths if item.get("p95Ms") is not None]
+    completed_epoch = time.time()
+    duration = completed_epoch - started_epoch
+    validity = max(INTERVAL * 3, int(duration * 2 + INTERVAL))
     HISTORY.append({"lossRatio": round(1 - path_successes / path_attempts, 4) if path_attempts else 1,
-                    "p95Ms": max(successful_p95) if successful_p95 else None})
+                    "p95Ms": max(successful_p95) if successful_p95 else None, "completedEpoch": completed_epoch})
     del HISTORY[:-HISTORY_SIZE]
-    return {"schemaVersion": "networking.re8ch.com/network-quality-v1alpha2", "observedAt":
-            time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "sourceNode": NODE, "sourcePlane": PLANE,
+    return {"schemaVersion": "networking.re8ch.com/network-quality-v1alpha2", "startedAt": started_at,
+            "observedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(completed_epoch)),
+            "measurementDurationSeconds": round(duration, 3), "validitySeconds": validity,
+            "sourceNode": NODE, "sourcePlane": PLANE,
             "targetsDiscovered": len(targets), "paths": paths, "dns": dns, "doh": doh,
             "history": history_summary(HISTORY),
             "measurementDefinitionIds": ["path-quality-v1", "dns-quality-v1"], "planGeneration": plan_generation,

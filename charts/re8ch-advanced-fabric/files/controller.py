@@ -104,7 +104,10 @@ def measurement_index(configmaps, active_names, freshness, now):
             result = json.loads(item.get("data", {}).get("result.json", "{}"))
             key = (result["sourceNode"], result["sourcePlane"])
             if key[0] in active_names:
-                result["fresh"] = now - parse_time(result["observedAt"]) <= freshness
+                duration = max(0, float(result.get("measurementDurationSeconds") or 0))
+                validity = max(float(freshness), float(result.get("validitySeconds") or 0), duration * 2 + freshness)
+                result["effectiveValiditySeconds"] = round(validity, 3)
+                result["fresh"] = now - parse_time(result["observedAt"]) <= validity
                 indexed[key] = result
         except (KeyError, TypeError, ValueError, json.JSONDecodeError):
             continue
@@ -125,14 +128,26 @@ def evidence_plan(spec_nodes, node_objects, configmaps, standard, generation, no
             result = evidence.get((node["name"], plane))
             missing = []
             if not result or not result.get("fresh"):
-                missing.extend(("optimality", "freshness"))
+                missing.append("freshness")
+            paths = [] if not result else result.get("paths", [])
+            current_paths = [path for path in paths if path.get("measurementDefinitionId") == "path-quality-v1" and
+                             path.get("pathRole") == "current"]
+            alternative_paths = [path for path in paths if path.get("measurementDefinitionId") == "path-quality-v1" and
+                                 path.get("pathRole") == "alternative" and path.get("feasible", True)]
+            if not current_paths:
+                missing.append("optimality.current-path")
+            if not alternative_paths:
+                missing.append("optimality.feasible-alternative")
             if not result or int(result.get("history", {}).get("windowSamples") or 0) < minimum_history:
                 missing.append("stability")
+            topology_gaps = [key for key in ("gateway", "isp", "asn", "tunnel", "physicalPath")
+                             if node.get(key) in (None, "")]
             independent = [peer for peer in active if peer["name"] != node["name"] and all(
                 peer.get(key) not in (None, "", node.get(key))
                 for key in ("gateway", "isp", "asn", "tunnel", "physicalPath"))]
-            if not independent:
-                missing.append("independence")
+            missing.extend("independence.%s" % key for key in topology_gaps)
+            if not topology_gaps and not independent:
+                missing.append("independence.independent-path")
             failed = [] if not result else [path for path in result.get("paths", [])
                                             if float(path.get("lossRatio", 0)) > 0]
             if missing or failed:
@@ -143,13 +158,14 @@ def evidence_plan(spec_nodes, node_objects, configmaps, standard, generation, no
                               "targetNodes": sorted(names),
                               "candidateNodes": sorted(peer["name"] for peer in independent),
                               "validateAfterAction": bool(failed)})
-    completed = {task_id for result in evidence.values() if result.get("fresh")
+    executed = {task_id for result in evidence.values() if result.get("fresh")
                  for task_id in result.get("completedTaskIds", [])}
     return {"schemaVersion": "networking.re8ch.com/evidence-plan-v1alpha1",
             "generation": generation, "generatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
             "activeNodes": sorted(names), "retiredInventoryNodes": retired,
-            "tasks": tasks, "completedTaskIds": sorted(completed),
-            "pendingTaskIds": sorted(task["id"] for task in tasks if task["id"] not in completed)}
+            "tasks": tasks, "executedTaskIds": sorted(executed),
+            "completedTaskIds": sorted(task_id for task_id in executed if task_id not in {task["id"] for task in tasks}),
+            "pendingTaskIds": sorted(task["id"] for task in tasks)}
 
 
 def node_inferences(plan, configmaps, standard, now=None):
@@ -190,12 +206,19 @@ def osi_snapshot(node, status, measurements):
                   path.get("feasible", True) and path.get("lossRatio") is not None and path.get("p95Ms") is not None]
     current_paths = [path for path in comparable if path.get("pathRole") == "current"]
     alternatives = [path for path in comparable if path.get("pathRole") == "alternative"]
+    comparisons = []
     if current_paths and alternatives:
         quality = lambda path: .7 * (1 - max(0, min(1, float(path["lossRatio"])))) + \
                                .3 * math.exp(-float(path["p95Ms"]) / 200)
-        current_quality = sum(map(quality, current_paths)) / len(current_paths)
-        best_feasible = max([current_quality] + [quality(path) for path in alternatives])
-        optimality = 1 if best_feasible == 0 else max(0, min(1, current_quality / best_feasible))
+        for current_path in current_paths:
+            scoped = [path for path in alternatives if path.get("targetNode") == current_path.get("targetNode") and
+                      path.get("targetPlane") == current_path.get("targetPlane")]
+            if scoped:
+                current_quality = quality(current_path)
+                best_feasible = max([current_quality] + [quality(path) for path in scoped])
+                comparisons.append(1 if best_feasible == 0 else max(0, min(1, current_quality / best_feasible)))
+        if comparisons:
+            optimality = sum(comparisons) / len(comparisons)
     histories = [item.get("history", {}) for item in current]
     dynamics = status.get("routeDynamics", {})
     stability = None
@@ -218,7 +241,7 @@ def osi_snapshot(node, status, measurements):
             "o": None if optimality is None else round(optimality, 3),
             "s": None if stability is None else round(stability, 3),
             "i": None if independence is None else round(independence, 3),
-            "confidenceO": round(min(1, len(current_paths) / 2) * min(1, len(alternatives) / 2), 3),
+            "confidenceO": round(len(comparisons) / len(current_paths), 3) if current_paths else 0.0,
             "confidenceS": round(min(1, len(histories) / 2) * min(1, float(dynamics.get("samples") or 0) / 10), 3),
             "confidenceI": round(min(1, len(peers) / 3), 3) if independence is not None else 0.0}
 

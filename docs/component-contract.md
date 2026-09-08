@@ -1,6 +1,6 @@
 # Advanced Fabric component contract
 
-**Status:** implemented in chart 0.16  
+**Status:** implemented in chart 0.17
 **Audience:** platform operators and services that consume network evidence
 
 ## Component boundary
@@ -55,9 +55,27 @@ advancedFabric:
     validitySeconds: 120
   networkQuality:
     enabled: true
+    maximumConcurrency: 24
 ```
 
 Public defaults remain disabled and contain no organization-specific inventory.
+
+An operator may declare an actually reachable alternative endpoint for the same
+destination scope. This is the only input that permits the collector to emit an
+`alternative` path for O:
+
+```yaml
+nodes:
+  - name: node-a
+    alternativePaths:
+      - name: node-b-via-independent-gateway
+        targetNode: node-b
+        targetPlane: host
+        address: 192.0.2.20
+```
+
+The address must route through the declared alternative in the deployment. A
+different destination is never accepted as a substitute comparison.
 
 ## Internal closure
 
@@ -200,7 +218,7 @@ therefore does not remove the component's ability to describe that degradation.
 
 ```sh
 helm template advanced-fabric oci://ghcr.io/re8ch/charts/re8ch-advanced-fabric \
-  --version 0.16.0 --set advancedFabric.enabled=true \
+  --version 0.17.0 --set advancedFabric.enabled=true \
   --set advancedFabric.networkQuality.enabled=true >/tmp/advanced-fabric.yaml
 
 kubectl get advancedfabric re8ch

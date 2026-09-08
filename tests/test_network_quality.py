@@ -96,11 +96,36 @@ class NetworkQualityTest(unittest.TestCase):
         task = next(item for item in first["tasks"] if item["sourceNode"] == "a" and item["sourcePlane"] == "host")
         payload = {"sourceNode": "a", "sourcePlane": "host", "observedAt":
                    datetime.datetime.fromtimestamp(now, datetime.timezone.utc).isoformat(),
-                   "history": {"windowSamples": 3}, "completedTaskIds": [task["id"]]}
+                   "history": {"windowSamples": 3}, "paths": [
+                       {"measurementDefinitionId": "path-quality-v1", "pathRole": "current",
+                        "targetNode": "b", "targetPlane": "host", "lossRatio": 0, "p95Ms": 10},
+                       {"measurementDefinitionId": "path-quality-v1", "pathRole": "alternative", "feasible": True,
+                        "targetNode": "b", "targetPlane": "host", "lossRatio": 0, "p95Ms": 9}],
+                   "completedTaskIds": [task["id"]]}
         second = controller["evidence_plan"](nodes, actual,
             [{"data": {"result.json": json.dumps(payload)}}], {"freshnessSeconds": 120}, 7, now)
         self.assertIn(task["id"], second["completedTaskIds"])
         self.assertNotIn(task["id"], second["pendingTaskIds"])
+
+    def test_measurement_freshness_tolerates_sampling_duration(self):
+        now = 1_800_000_000
+        payload = {"sourceNode": "a", "sourcePlane": "host", "observedAt":
+                   datetime.datetime.fromtimestamp(now - 240, datetime.timezone.utc).isoformat(),
+                   "measurementDurationSeconds": 180, "validitySeconds": 390}
+        result = controller["measurement_index"](
+            [{"data": {"result.json": json.dumps(payload)}}], {"a"}, 120, now)
+        self.assertTrue(result[("a", "host")]["fresh"])
+        self.assertEqual(result[("a", "host")]["effectiveValiditySeconds"], 480)
+
+    def test_optimality_does_not_compare_different_destinations(self):
+        measurements = {("a", "host"): {"fresh": True, "observedAt": "2026-09-08T00:00:00Z", "paths": [
+            {"measurementDefinitionId": "path-quality-v1", "pathRole": "current", "targetNode": "b",
+             "targetPlane": "host", "lossRatio": 0, "p95Ms": 20},
+            {"measurementDefinitionId": "path-quality-v1", "pathRole": "alternative", "targetNode": "c",
+             "targetPlane": "host", "lossRatio": 0, "p95Ms": 10}]}}
+        snapshot = controller["osi_snapshot"]({"name": "a"}, {}, measurements)
+        self.assertIsNone(snapshot["o"])
+        self.assertEqual(snapshot["confidenceO"], 0)
 
     def test_history_summary_reports_variance_not_freshness(self):
         result = probe["history_summary"]([{"lossRatio": 0, "p95Ms": 10},
