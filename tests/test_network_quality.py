@@ -17,7 +17,9 @@ def load_functions(path, names, namespace):
 
 
 controller = load_functions(ROOT / "charts/re8ch-advanced-fabric/files/controller.py",
-                            {"parse_time", "network_quality"}, {"datetime": datetime, "json": json, "time": time})
+                            {"parse_time", "network_quality", "cluster_inventory", "measurement_index",
+                             "evidence_plan", "node_inferences"},
+                            {"datetime": datetime, "json": json, "time": time})
 probe = load_functions(ROOT / "charts/re8ch-advanced-fabric/files/conformance-probe.py",
                        {"percentile", "history_summary", "encode_name", "dns_packet", "dns_rcode", "prometheus_escape",
                         "labels", "parse_observed_time", "prometheus_text"},
@@ -26,6 +28,36 @@ probe = load_functions(ROOT / "charts/re8ch-advanced-fabric/files/conformance-pr
 
 
 class NetworkQualityTest(unittest.TestCase):
+    def test_cluster_membership_filters_retired_static_inventory(self):
+        declared = [{"name": name} for name in ("r640", "qwen-1", "overseas-edge-50")]
+        actual = [{"metadata": {"name": "r640"}}]
+        active, retired = controller["cluster_inventory"](declared, actual)
+        self.assertEqual([item["name"] for item in active], ["r640"])
+        self.assertEqual(retired, ["overseas-edge-50", "qwen-1"])
+
+    def test_deleting_node_object_removes_it_from_expected_quality_matrix(self):
+        declared = [{"name": "r640"}, {"name": "qwen-1"}]
+        active, _ = controller["cluster_inventory"](declared, [{"metadata": {"name": "r640"}}])
+        result = controller["network_quality"]([], [item["name"] for item in active],
+                                               {"minimumCoverageRatio": 1})
+        self.assertEqual(result["expectedSources"], 2)
+        self.assertEqual(result["expectedPaths"], 4)
+
+    def test_evidence_planner_closes_task_after_collector_reports_it(self):
+        now = 1_800_000_000
+        nodes = [{"name": "a", "provider": "p1", "asn": 1, "failureDomain": "d1", "gateway": "g1", "tunnel": "t1"},
+                 {"name": "b", "provider": "p2", "asn": 2, "failureDomain": "d2", "gateway": "g2", "tunnel": "t2"}]
+        actual = [{"metadata": {"name": name}} for name in ("a", "b")]
+        first = controller["evidence_plan"](nodes, actual, [], {"freshnessSeconds": 120}, 7, now)
+        task = next(item for item in first["tasks"] if item["sourceNode"] == "a" and item["sourcePlane"] == "host")
+        payload = {"sourceNode": "a", "sourcePlane": "host", "observedAt":
+                   datetime.datetime.fromtimestamp(now, datetime.timezone.utc).isoformat(),
+                   "history": {"windowSamples": 3}, "completedTaskIds": [task["id"]]}
+        second = controller["evidence_plan"](nodes, actual,
+            [{"data": {"result.json": json.dumps(payload)}}], {"freshnessSeconds": 120}, 7, now)
+        self.assertIn(task["id"], second["completedTaskIds"])
+        self.assertNotIn(task["id"], second["pendingTaskIds"])
+
     def test_history_summary_reports_variance_not_freshness(self):
         result = probe["history_summary"]([{"lossRatio": 0, "p95Ms": 10},
                                             {"lossRatio": .5, "p95Ms": 30},

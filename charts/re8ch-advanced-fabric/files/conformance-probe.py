@@ -192,6 +192,17 @@ def discover():
     return sorted(targets, key=lambda item: item["node"]), dns_servers
 
 
+def assigned_tasks():
+    try:
+        obj = api("GET", "/api/v1/namespaces/%s/configmaps/advanced-fabric-evidence-plan" % NAMESPACE)
+        plan = json.loads(obj.get("data", {}).get("plan.json", "{}"))
+        tasks = [task for task in plan.get("tasks", []) if task.get("sourceNode") == NODE and
+                 task.get("sourcePlane") == PLANE]
+        return plan.get("generation"), tasks
+    except (urllib.error.HTTPError, KeyError, ValueError, json.JSONDecodeError):
+        return None, []
+
+
 def serve():
     """Provide the same TCP health contract in the host and pod namespaces."""
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -205,6 +216,10 @@ def serve():
 
 def snapshot():
     targets, dns_servers = discover()
+    plan_generation, tasks = assigned_tasks()
+    requested_targets = {name for task in tasks for name in task.get("targetNodes", [])}
+    if requested_targets:
+        targets = [target for target in targets if target["node"] in requested_targets]
     paths = []
     for target in targets:
         for destination_plane, key in (("host", "hostIP"), ("pod", "podIP")):
@@ -225,7 +240,8 @@ def snapshot():
     return {"schemaVersion": "networking.re8ch.com/network-quality-v1alpha2", "observedAt":
             time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "sourceNode": NODE, "sourcePlane": PLANE,
             "targetsDiscovered": len(targets), "paths": paths, "dns": dns, "doh": doh,
-            "history": history_summary(HISTORY)}
+            "history": history_summary(HISTORY), "planGeneration": plan_generation,
+            "completedTaskIds": sorted(task["id"] for task in tasks)}
 
 
 def prometheus_escape(value):
