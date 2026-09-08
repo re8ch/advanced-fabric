@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Prune legacy desired-state keys by comparing the existing ConfigMap with
+  active Kubernetes membership, including nodes no longer present in CR spec.
 - Use the Kubernetes-injected API Service endpoint for controller reconciliation
   instead of the accelerated fabric VIP, so dataplane degradation cannot stall
   evidence planning and status publication.

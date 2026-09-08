@@ -17,7 +17,7 @@ def load_functions(path, names, namespace):
 
 
 controller = load_functions(ROOT / "charts/re8ch-advanced-fabric/files/controller.py",
-                            {"parse_time", "network_quality", "cluster_inventory", "measurement_index",
+                            {"parse_time", "network_quality", "cluster_inventory", "stale_desired_nodes", "measurement_index",
                              "evidence_plan", "node_inferences"},
                             {"datetime": datetime, "json": json, "time": time})
 probe = load_functions(ROOT / "charts/re8ch-advanced-fabric/files/conformance-probe.py",
@@ -28,6 +28,11 @@ probe = load_functions(ROOT / "charts/re8ch-advanced-fabric/files/conformance-pr
 
 
 class NetworkQualityTest(unittest.TestCase):
+    def test_stale_desired_nodes_includes_legacy_entries_absent_from_spec(self):
+        stale = controller["stale_desired_nodes"](
+            {"r640.json": "{}", "qwen-1.json": "{}", "qwen-2.json": "{}"}, {"r640"})
+        self.assertEqual(stale, ["qwen-1", "qwen-2"])
+
     def test_cluster_membership_filters_retired_static_inventory(self):
         declared = [{"name": name} for name in ("r640", "qwen-1", "overseas-edge-50")]
         actual = [{"metadata": {"name": "r640"}}]
