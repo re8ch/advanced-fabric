@@ -11,6 +11,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import statistics
 
 
 NODE = os.environ["NODE_NAME"]
@@ -25,6 +26,8 @@ DOH_URL = os.environ.get("DOH_URL", "")
 DOH_CA_FILE = os.environ.get("DOH_CA_FILE", "/doh-ca/tls.crt")
 SHADOW_DNS_SERVICE = os.environ.get("SHADOW_DNS_SERVICE", "")
 DNS_SERVICE = os.environ.get("DNS_SERVICE", "advanced-fabric-dns")
+HISTORY_SIZE = int(os.environ.get("PROBE_HISTORY_SIZE", "20"))
+HISTORY = []
 BASE = "https://%s:%s" % (os.environ["KUBERNETES_SERVICE_HOST"], os.environ["KUBERNETES_SERVICE_PORT_HTTPS"])
 TOKEN = open("/var/run/secrets/kubernetes.io/serviceaccount/token", encoding="utf-8").read().strip()
 CONTEXT = ssl.create_default_context(cafile="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
@@ -45,6 +48,17 @@ def percentile(values, quantile):
         return None
     ordered = sorted(values)
     return round(ordered[min(len(ordered) - 1, int((len(ordered) - 1) * quantile))], 3)
+
+
+def history_summary(history):
+    """Summarize repeated snapshots; freshness is deliberately evaluated by consumers."""
+    losses = [item["lossRatio"] for item in history]
+    latencies = [item["p95Ms"] for item in history if item.get("p95Ms") is not None]
+    return {"windowSamples": len(history), "windowSeconds": max(0, (len(history) - 1) * INTERVAL),
+            "lossMean": round(statistics.fmean(losses), 4) if losses else None,
+            "lossStdDev": round(statistics.pstdev(losses), 4) if len(losses) > 1 else None,
+            "p95MeanMs": round(statistics.fmean(latencies), 3) if latencies else None,
+            "p95StdDevMs": round(statistics.pstdev(latencies), 3) if len(latencies) > 1 else None}
 
 
 def tcp_probe(address, port=PORT):
@@ -202,9 +216,16 @@ def snapshot():
         if dns_server and dns_server != "None":
             dns.extend(dns_measure(dns_server, protocol, role=role) for protocol in ("udp", "tcp"))
     doh = [doh_measure(DOH_URL)] if DOH_URL else []
-    return {"schemaVersion": "networking.re8ch.com/network-quality-v1alpha1", "observedAt":
+    path_attempts = sum(item.get("attempts", 0) for item in paths)
+    path_successes = sum(item.get("successes", 0) for item in paths)
+    successful_p95 = [item["p95Ms"] for item in paths if item.get("p95Ms") is not None]
+    HISTORY.append({"lossRatio": round(1 - path_successes / path_attempts, 4) if path_attempts else 1,
+                    "p95Ms": max(successful_p95) if successful_p95 else None})
+    del HISTORY[:-HISTORY_SIZE]
+    return {"schemaVersion": "networking.re8ch.com/network-quality-v1alpha2", "observedAt":
             time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "sourceNode": NODE, "sourcePlane": PLANE,
-            "targetsDiscovered": len(targets), "paths": paths, "dns": dns, "doh": doh}
+            "targetsDiscovered": len(targets), "paths": paths, "dns": dns, "doh": doh,
+            "history": history_summary(HISTORY)}
 
 
 def prometheus_escape(value):
