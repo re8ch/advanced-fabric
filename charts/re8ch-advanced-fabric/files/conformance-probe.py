@@ -54,11 +54,16 @@ def history_summary(history):
     """Summarize repeated snapshots; freshness is deliberately evaluated by consumers."""
     losses = [item["lossRatio"] for item in history]
     latencies = [item["p95Ms"] for item in history if item.get("p95Ms") is not None]
+    longest, current = 0, 0
+    for item in history:
+        current = current + 1 if item["lossRatio"] > 0 else 0
+        longest = max(longest, current)
     return {"windowSamples": len(history), "windowSeconds": max(0, (len(history) - 1) * INTERVAL),
             "lossMean": round(statistics.fmean(losses), 4) if losses else None,
             "lossStdDev": round(statistics.pstdev(losses), 4) if len(losses) > 1 else None,
             "p95MeanMs": round(statistics.fmean(latencies), 3) if latencies else None,
-            "p95StdDevMs": round(statistics.pstdev(latencies), 3) if len(latencies) > 1 else None}
+            "p95StdDevMs": round(statistics.pstdev(latencies), 3) if len(latencies) > 1 else None,
+            "lossBurstRatio": round(longest / len(history), 4) if history else None}
 
 
 def tcp_probe(address, port=PORT):
@@ -224,7 +229,8 @@ def snapshot():
     for target in targets:
         for destination_plane, key in (("host", "hostIP"), ("pod", "podIP")):
             if target.get(key):
-                paths.append({"sourceNode": NODE, "sourcePlane": PLANE, "targetNode": target["node"],
+                paths.append({"measurementDefinitionId": "path-quality-v1", "pathRole": "current",
+                              "sourceNode": NODE, "sourcePlane": PLANE, "targetNode": target["node"],
                               "targetPlane": destination_plane, **measure(target[key])})
     dns = []
     for role, dns_server in dns_servers:
@@ -240,7 +246,8 @@ def snapshot():
     return {"schemaVersion": "networking.re8ch.com/network-quality-v1alpha2", "observedAt":
             time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "sourceNode": NODE, "sourcePlane": PLANE,
             "targetsDiscovered": len(targets), "paths": paths, "dns": dns, "doh": doh,
-            "history": history_summary(HISTORY), "planGeneration": plan_generation,
+            "history": history_summary(HISTORY),
+            "measurementDefinitionIds": ["path-quality-v1", "dns-quality-v1"], "planGeneration": plan_generation,
             "completedTaskIds": sorted(task["id"] for task in tasks)}
 
 
