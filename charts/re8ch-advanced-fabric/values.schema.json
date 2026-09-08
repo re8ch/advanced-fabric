@@ -39,6 +39,14 @@
         "nativeRoutingCIDR": {"type": "string", "const": "10.42.0.0/16"},
         "acceleratedCIDR": {"type": "string", "const": "10.250.0.0/24"},
         "serviceCIDR": {"type": "string", "const": "10.251.0.0/24"},
+        "componentAPI": {
+          "type": "object",
+          "required": ["publishAssessments", "validitySeconds"],
+          "properties": {
+            "publishAssessments": {"type": "boolean"},
+            "validitySeconds": {"type": "integer", "minimum": 30, "maximum": 3600}
+          }
+        },
         "dns": {
           "type": "object",
           "required": ["enabled", "image", "replicas", "pdbMinAvailable", "clusterDomain", "ttlSeconds", "upstreams", "conditionalForwarders", "service", "doh", "migration"],

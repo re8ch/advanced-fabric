@@ -17,7 +17,10 @@ rules:
     resources: [advancedfabrics, trafficpolicies]
     verbs: [get, list, watch]
   - apiGroups: [networking.re8ch.com]
-    resources: [advancedfabrics/status, trafficpolicies/status]
+    resources: [networkpathassessments]
+    verbs: [get, list, watch, create, patch, update, delete]
+  - apiGroups: [networking.re8ch.com]
+    resources: [advancedfabrics/status, trafficpolicies/status, networkpathassessments/status]
     verbs: [get, patch, update]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

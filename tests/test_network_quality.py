@@ -17,9 +17,12 @@ def load_functions(path, names, namespace):
 
 
 controller = load_functions(ROOT / "charts/re8ch-advanced-fabric/files/controller.py",
-                            {"parse_time", "network_quality", "cluster_inventory", "stale_desired_nodes", "measurement_index",
-                             "evidence_plan", "node_inferences", "osi_snapshot", "append_osi_history"},
-                            {"datetime": datetime, "json": json, "time": time, "math": __import__("math")})
+                            {"parse_time", "condition", "network_quality", "cluster_inventory", "stale_desired_nodes",
+                             "measurement_index", "evidence_plan", "node_inferences", "osi_snapshot",
+                             "append_osi_history", "assessment_document"},
+                            {"datetime": datetime, "json": json, "time": time, "math": __import__("math"),
+                             "MEASUREMENT_DEFINITIONS": {"path-quality-v1": {}, "temporal-stability-v1": {},
+                                                         "failure-domain-graph-v1": {}}})
 probe = load_functions(ROOT / "charts/re8ch-advanced-fabric/files/conformance-probe.py",
                        {"percentile", "history_summary", "encode_name", "dns_packet", "dns_rcode", "prometheus_escape",
                         "labels", "parse_observed_time", "prometheus_text"},
@@ -28,6 +31,24 @@ probe = load_functions(ROOT / "charts/re8ch-advanced-fabric/files/conformance-pr
 
 
 class NetworkQualityTest(unittest.TestCase):
+    def test_component_assessment_uses_only_formal_state(self):
+        legacy = {"observedAt": "2027-01-15T08:00:00Z", "o": .9, "s": .8, "i": .7}
+        formal = {"modelVersion": "networking.re8ch.com/measurement-model-v1alpha1",
+                  "observedAt": "2027-01-15T08:00:10Z", "o": .8, "s": None, "i": None,
+                  "confidenceO": .7, "confidenceS": 0, "confidenceI": 0}
+        result = controller["assessment_document"]({"name": "node-a"}, [legacy, formal],
+            {"diagnosis": "evidence-incomplete", "recommendation": "measure"}, 120, 1_800_000_020)
+        self.assertEqual(result["status"]["state"], "Partial")
+        self.assertEqual(result["status"]["dimensions"]["optimality"], .8)
+        self.assertIsNone(result["status"]["dimensions"]["stability"])
+        self.assertEqual(result["status"]["confidence"]["optimality"], .7)
+
+    def test_component_assessment_marks_expired_state_stale(self):
+        formal = {"modelVersion": "networking.re8ch.com/measurement-model-v1alpha1",
+                  "observedAt": "2027-01-15T08:00:00Z", "o": 1, "s": 1, "i": 1}
+        result = controller["assessment_document"]({"name": "node-a"}, [formal], {}, 30, 1_800_000_100)
+        self.assertEqual(result["status"]["state"], "Stale")
+
     def test_osi_history_preserves_unknown_dimensions(self):
         node = {"name": "r640"}
         result = controller["append_osi_history"]({}, [node], {"r640": {"observedAt": "2026-09-08T00:00:00Z"}}, {})
