@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.20.0
+
+- Register `service-traffic-v1`, a provider-neutral input contract for traffic
+  entering Kubernetes Services, attributed to the destination node.
+- Calculate Service optimality and stability as traffic-weighted node values and
+  failure independence as normalized inverse HHI across observed failure domains.
+- Publish the input window, samples, bytes, packets, requests, rates, confidence,
+  and formula operands on Service-scoped `NetworkPathAssessment` resources.
+- Keep missing and stale evidence unknown; no traffic or OSI value is synthesized.
+
 ## 0.19.0
 
 - Add opt-in two-phase adoption from a legacy IngressClass: render and validate

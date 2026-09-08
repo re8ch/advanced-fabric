@@ -87,6 +87,7 @@ spec:
                   properties:
                     apiVersion: {type: string, minLength: 1}
                     kind: {type: string, minLength: 1}
+                    namespace: {type: string, minLength: 1}
                     name: {type: string, minLength: 1}
                 scope:
                   type: object
@@ -113,6 +114,8 @@ spec:
                     optimality: {type: number, minimum: 0, maximum: 1}
                     stability: {type: number, minimum: 0, maximum: 1}
                     independence: {type: number, minimum: 0, maximum: 1}
+                measurements: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                calculation: {type: object, x-kubernetes-preserve-unknown-fields: true}
                 evidenceRefs:
                   type: array
                   items: {type: string}

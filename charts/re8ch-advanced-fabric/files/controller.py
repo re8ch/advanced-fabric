@@ -36,7 +36,14 @@ MEASUREMENT_DEFINITIONS = {
     "failure-domain-graph-v1": {"scope": "feasible path dependency graph", "unit": "normalized independent-domain ratio",
         "samplingProcedure": "enumerate gateway/ISP/ASN/tunnel/physical-path dependencies", "timeWindow": "topology observation timestamp",
         "failureSemantics": "missing dependency edge is unknown", "uncertainty": "declared topology may lag physical reality",
-        "measurementCost": "metadata and route observation only"}}
+        "measurementCost": "metadata and route observation only"},
+    "service-traffic-v1": {"scope": "traffic entering one Kubernetes Service, attributed to destination node",
+        "unit": "bytes, packets, requests and per-second rates",
+        "samplingProcedure": "counter deltas exported by a registered Cilium/Hubble, Gateway or Prometheus collector",
+        "timeWindow": "collector-declared bounded interval",
+        "failureSemantics": "missing, stale or unattributed traffic is unknown; zero is accepted only from an executed window",
+        "uncertainty": "sampling and destination attribution depend on the registered collector",
+        "measurementCost": "reads retained dataplane counters; no synthetic service traffic"}}
 
 
 def request(method, path, body=None):
@@ -258,6 +265,92 @@ def append_osi_history(existing, nodes, statuses, measurements, limit=96):
     return {name: values for name, values in history.items() if name in {node["name"] for node in nodes}}
 
 
+def service_traffic_index(configmaps, freshness, now=None):
+    """Index fresh, collector-executed Service traffic windows without inventing zeroes."""
+    now = time.time() if now is None else now
+    indexed = {}
+    for item in configmaps:
+        data = item.get("data", {})
+        raw = data.get("measurement.json") or data.get("service-traffic.json") or "{}"
+        try:
+            payload = json.loads(raw)
+            observed = payload["observedAt"]
+            window = max(1.0, float(payload["windowSeconds"]))
+            validity = max(float(freshness), window * 2)
+            if now - parse_time(observed) > validity:
+                continue
+            collector = payload.get("collector", "registered")
+            for sample in payload.get("samples", []):
+                namespace, service, node = sample["namespace"], sample["service"], sample["node"]
+                values = {key: max(0.0, float(sample.get(key) or 0))
+                          for key in ("receivedBytes", "receivedPackets", "requests")}
+                key = (namespace, service)
+                indexed.setdefault(key, []).append({**values, "node": node, "observedAt": observed,
+                    "windowSeconds": window, "collector": collector,
+                    "measurementDefinitionId": "service-traffic-v1"})
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            continue
+    return indexed
+
+
+def service_osi_snapshot(subject, traffic, node_history, node_index):
+    """Aggregate Node O/S by measured inflow and derive I from failure-domain spread."""
+    namespace, service = subject
+    latest = {node: values[-1] for node, values in node_history.items() if values}
+    traffic = [entry for entry in traffic if entry.get("node") in latest]
+    observed = max([entry.get("observedAt", "") for entry in traffic] or [""])
+    window = max([float(entry.get("windowSeconds") or 0) for entry in traffic] or [0])
+    totals = {field: sum(float(entry.get(field) or 0) for entry in traffic)
+              for field in ("receivedBytes", "receivedPackets", "requests")}
+    weight_field = next((field for field in ("receivedBytes", "receivedPackets", "requests")
+                         if totals[field] > 0), None)
+    total_weight = totals.get(weight_field, 0) if weight_field else 0
+
+    def weighted(axis):
+        known = [(entry, latest[entry["node"]].get(axis)) for entry in traffic]
+        known = [(entry, value) for entry, value in known if value is not None]
+        denominator = sum(float(entry.get(weight_field) or 0) for entry, _ in known) if weight_field else 0
+        numerator = sum(float(entry.get(weight_field) or 0) * float(value) for entry, value in known) if weight_field else 0
+        return (numerator / denominator if denominator else None, numerator, denominator)
+
+    optimality, o_num, o_den = weighted("o")
+    stability, s_num, s_den = weighted("s")
+    domain_weights, attributed = {}, 0.0
+    for entry in traffic:
+        domain = node_index.get(entry["node"], {}).get("failureDomain")
+        weight = float(entry.get(weight_field) or 0) if weight_field else 0
+        if domain and weight:
+            domain_weights[domain] = domain_weights.get(domain, 0.0) + weight
+            attributed += weight
+    independence = None
+    if attributed:
+        shares = [value / attributed for value in domain_weights.values()]
+        independence = 0.0 if len(shares) == 1 else (1 - sum(value * value for value in shares)) / (1 - 1 / len(shares))
+    rates = {"bytesPerSecond": totals["receivedBytes"] / window if window else None,
+             "packetsPerSecond": totals["receivedPackets"] / window if window else None,
+             "requestsPerSecond": totals["requests"] / window if window else None}
+    return {"modelVersion": "networking.re8ch.com/measurement-model-v1alpha2", "observedAt": observed,
+            "o": None if optimality is None else round(optimality, 6),
+            "s": None if stability is None else round(stability, 6),
+            "i": None if independence is None else round(max(0, min(1, independence)), 6),
+            "confidenceO": round(o_den / total_weight, 6) if total_weight else 0.0,
+            "confidenceS": round(s_den / total_weight, 6) if total_weight else 0.0,
+            "confidenceI": round(attributed / total_weight, 6) if total_weight else 0.0,
+            "measurements": {"definitionId": "service-traffic-v1", "windowSeconds": window,
+                "sampleCount": len(traffic), "weightUnit": weight_field, **totals, **rates,
+                "collectors": sorted({entry["collector"] for entry in traffic}),
+                "nodeValues": [{key: entry.get(key) for key in ("node", "receivedBytes", "receivedPackets", "requests")}
+                               for entry in sorted(traffic, key=lambda value: value["node"])]},
+            "calculation": {
+                "optimality": {"method": "traffic-weighted-node-optimality", "numerator": round(o_num, 6),
+                               "denominator": round(o_den, 6), "unit": weight_field},
+                "stability": {"method": "traffic-weighted-node-stability", "numerator": round(s_num, 6),
+                              "denominator": round(s_den, 6), "unit": weight_field},
+                "independence": {"method": "normalized-inverse-HHI-by-failure-domain",
+                                 "attributedWeight": round(attributed, 6), "totalWeight": round(total_weight, 6),
+                                 "unit": weight_field, "domainWeights": domain_weights}}}
+
+
 def assessment_document(node, snapshots, inference, validity_seconds, now=None):
     """Build the stable consumer API exclusively from formal component state."""
     now = time.time() if now is None else now
@@ -306,13 +399,72 @@ def assessment_document(node, snapshots, inference, validity_seconds, now=None):
             "status": status}
 
 
-def publish_assessments(nodes, history, inferences, validity_seconds):
+def service_assessment_document(subject, snapshot, validity_seconds, now=None):
+    """Build a Service-scoped NPA with numeric traffic and calculation evidence."""
+    now = time.time() if now is None else now
+    namespace, service = subject
+    observed = snapshot.get("observedAt", "")
+    observed_epoch = parse_time(observed) if observed else None
+    valid_until_epoch = observed_epoch + validity_seconds if observed_epoch is not None else None
+    dimensions = {"optimality": snapshot.get("o"), "stability": snapshot.get("s"),
+                  "independence": snapshot.get("i")}
+    confidence = {"optimality": float(snapshot.get("confidenceO") or 0),
+                  "stability": float(snapshot.get("confidenceS") or 0),
+                  "independence": float(snapshot.get("confidenceI") or 0)}
+    known = sum(value is not None for value in dimensions.values())
+    if observed_epoch is not None and now > valid_until_epoch:
+        state, reason = "Stale", "EvidenceExpired"
+    elif known == 3:
+        state, reason = "Ready", "AllDimensionsAvailable"
+    elif known:
+        state, reason = "Partial", "SomeDimensionsUnavailable"
+    else:
+        state, reason = "Unknown", "RequiredEvidenceUnavailable"
+    safe = lambda value: "".join(char if char.isalnum() or char == "-" else "-" for char in value.lower()).strip("-")
+    prefix = "service-%s-%s" % (safe(namespace), safe(service))
+    digest = hashlib.sha256((namespace + "/" + service).encode()).hexdigest()[:8]
+    name = prefix[:54].rstrip("-") + "-" + digest
+    status = {"state": state, "dimensions": dimensions, "confidence": confidence,
+              "measurements": snapshot.get("measurements", {}), "calculation": snapshot.get("calculation", {}),
+              "evidenceRefs": ["service-traffic-v1", "path-quality-v1", "temporal-stability-v1",
+                               "failure-domain-graph-v1"],
+              "diagnosis": "service-traffic-assessed" if known else "service-traffic-evidence-incomplete",
+              "recommendation": "retain measured distribution" if known == 3 else "collect missing node and traffic evidence",
+              "validation": {"state": "measured", "subject": namespace + "/" + service},
+              "conditions": [condition("EvidenceReady", state in ("Ready", "Partial"), reason,
+                                         "%s of 3 traffic-weighted O/S/I dimensions available" % known)]}
+    if observed:
+        status["observedAt"] = observed
+    if valid_until_epoch is not None:
+        status["validUntil"] = datetime.datetime.fromtimestamp(valid_until_epoch, datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+    return {"apiVersion": "networking.re8ch.com/v1alpha1", "kind": "NetworkPathAssessment",
+            "metadata": {"name": name, "labels": {"app.kubernetes.io/managed-by": "re8ch-advanced-fabric",
+                          "networking.re8ch.com/subject-kind": "Service",
+                          "networking.re8ch.com/subject-namespace": namespace}},
+            "spec": {"subjectRef": {"apiVersion": "v1", "kind": "Service", "namespace": namespace, "name": service},
+                     "scope": {"plane": "pod", "direction": "forward", "protocol": "mixed"}},
+            "status": status}
+
+
+def publish_assessments(nodes, history, inferences, validity_seconds, service_snapshots=None):
     """Publish and prune the component-owned, consumer-neutral API objects."""
     desired = set()
     inference_index = {item["node"]: item for item in inferences}
     for node in nodes:
         document = assessment_document(node, history.get(node["name"], []),
                                        inference_index.get(node["name"]), validity_seconds)
+        name, status = document["metadata"]["name"], document.pop("status")
+        desired.add(name)
+        path = "/apis/networking.re8ch.com/v1alpha1/networkpathassessments/%s" % name
+        try:
+            request("PATCH", path, document)
+        except urllib.error.HTTPError as exc:
+            if exc.code != 404:
+                raise
+            request("POST", "/apis/networking.re8ch.com/v1alpha1/networkpathassessments", document)
+        request("PATCH", path + "/status", {"status": status})
+    for subject, snapshot in sorted((service_snapshots or {}).items()):
+        document = service_assessment_document(subject, snapshot, validity_seconds)
         name, status = document["metadata"]["name"], document.pop("status")
         desired.add(name)
         path = "/apis/networking.re8ch.com/v1alpha1/networkpathassessments/%s" % name
@@ -475,6 +627,8 @@ def reconcile():
                                    "app.kubernetes.io%2Fcomponent%3Dnetwork-quality").get("items", [])
     status_configmaps = request("GET", "/api/v1/namespaces/kube-system/configmaps?labelSelector="
                                 "networking.re8ch.com%2Fnode-status%3Dtrue").get("items", [])
+    traffic_configmaps = request("GET", "/api/v1/configmaps?labelSelector="
+                                 "app.kubernetes.io%2Fcomponent%3Dservice-traffic").get("items", [])
     active_nodes, retired_nodes = cluster_inventory(spec["nodes"], node_objects)
     node_index = {node["name"]: node for node in active_nodes}
     declared_index = {node["name"]: node for node in spec["nodes"]}
@@ -580,6 +734,10 @@ def reconcile():
     measurement_state = measurement_index(probe_configmaps, set(node_index),
                                           int(quality_standard.get("freshnessSeconds", 120)), time.time())
     osi_history = append_osi_history(existing_history, active_nodes, statuses, measurement_state)
+    traffic_state = service_traffic_index(
+        traffic_configmaps, int(quality_standard.get("freshnessSeconds", 120)), time.time())
+    service_snapshots = {subject: service_osi_snapshot(subject, traffic, osi_history, node_index)
+                         for subject, traffic in traffic_state.items()}
     upsert_configmap("advanced-fabric-osi-history",
                      {"app.kubernetes.io/name": "re8ch-advanced-fabric",
                       "app.kubernetes.io/component": "osi-history"},
@@ -588,12 +746,13 @@ def reconcile():
     upsert_configmap("advanced-fabric-measurement-model",
                      {"app.kubernetes.io/name": "re8ch-advanced-fabric",
                       "app.kubernetes.io/component": "measurement-model"},
-                     {"schemaVersion": "networking.re8ch.com/measurement-model-v1alpha1",
+                     {"schemaVersion": "networking.re8ch.com/measurement-model-v1alpha2",
                       "definitions": MEASUREMENT_DEFINITIONS}, "definitions.json")
     component_api = spec.get("componentAPI", {})
     if component_api.get("publishAssessments", True):
         publish_assessments(active_nodes, osi_history, inferences,
-                            int(component_api.get("validitySeconds", quality_standard.get("freshnessSeconds", 120))))
+                            int(component_api.get("validitySeconds", quality_standard.get("freshnessSeconds", 120))),
+                            service_snapshots)
     for (namespace, name), status in policy_status.items():
         request("PATCH", f"/apis/networking.re8ch.com/v1alpha1/namespaces/{namespace}/trafficpolicies/{name}/status", {"status": status})
     api_ready_nodes = sorted(name for name in eligible_api_nodes if ready.get(name, False))
@@ -603,6 +762,8 @@ def reconcile():
               "activeNodes": sorted(node_index), "retiredInventoryNodes": retired_nodes,
               "evidencePlanner": {"generation": plan["generation"], "tasks": len(plan["tasks"]),
                                   "pendingTasks": len(plan["pendingTaskIds"])},
+              "serviceTraffic": {"observedServices": len(service_snapshots),
+                                 "measurementWindows": sum(len(items) for items in traffic_state.values())},
               "inventoryIncomplete": incomplete, "ineligibleSpines": unavailable,
               "controlPlaneApi": {"enabled": bool(control_plane_api.get("enabled")),
                                   "vip": control_plane_api.get("vip", ""),

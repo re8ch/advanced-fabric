@@ -1,5 +1,6 @@
 import ast
 import datetime
+import hashlib
 import json
 import time
 import unittest
@@ -19,8 +20,10 @@ def load_functions(path, names, namespace):
 controller = load_functions(ROOT / "charts/re8ch-advanced-fabric/files/controller.py",
                             {"parse_time", "condition", "network_quality", "cluster_inventory", "stale_desired_nodes",
                              "measurement_index", "evidence_plan", "node_inferences", "osi_snapshot",
-                             "append_osi_history", "assessment_document"},
+                             "append_osi_history", "assessment_document", "service_traffic_index",
+                             "service_osi_snapshot", "service_assessment_document"},
                             {"datetime": datetime, "json": json, "time": time, "math": __import__("math"),
+                             "hashlib": hashlib,
                              "MEASUREMENT_DEFINITIONS": {"path-quality-v1": {}, "temporal-stability-v1": {},
                                                          "failure-domain-graph-v1": {}}})
 probe = load_functions(ROOT / "charts/re8ch-advanced-fabric/files/conformance-probe.py",
@@ -31,6 +34,36 @@ probe = load_functions(ROOT / "charts/re8ch-advanced-fabric/files/conformance-pr
 
 
 class NetworkQualityTest(unittest.TestCase):
+    def test_service_osi_uses_measured_inflow_and_exposes_numeric_calculation(self):
+        now = 1_800_000_000
+        observed = datetime.datetime.fromtimestamp(now, datetime.timezone.utc).isoformat()
+        payload = {"observedAt": observed, "windowSeconds": 60, "collector": "hubble",
+                   "samples": [
+                       {"namespace": "headlamp", "service": "headlamp", "node": "a",
+                        "receivedBytes": 750, "receivedPackets": 75, "requests": 30},
+                       {"namespace": "headlamp", "service": "headlamp", "node": "b",
+                        "receivedBytes": 250, "receivedPackets": 25, "requests": 10}]}
+        indexed = controller["service_traffic_index"](
+            [{"data": {"measurement.json": json.dumps(payload)}}], 120, now)
+        history = {"a": [{"o": .8, "s": .6, "i": .4}],
+                   "b": [{"o": .4, "s": 1.0, "i": .8}]}
+        nodes = {"a": {"failureDomain": "zone-a"}, "b": {"failureDomain": "zone-b"}}
+        snapshot = controller["service_osi_snapshot"](
+            ("headlamp", "headlamp"), indexed[("headlamp", "headlamp")], history, nodes)
+        self.assertEqual(snapshot["o"], .7)
+        self.assertEqual(snapshot["s"], .7)
+        self.assertEqual(snapshot["i"], .75)
+        self.assertEqual(snapshot["measurements"]["receivedBytes"], 1000)
+        self.assertEqual(snapshot["measurements"]["bytesPerSecond"], 1000 / 60)
+        self.assertEqual(snapshot["calculation"]["optimality"]["numerator"], 700)
+        document = controller["service_assessment_document"](
+            ("headlamp", "headlamp"), snapshot, 120, now)
+        self.assertEqual(document["spec"]["subjectRef"]["namespace"], "headlamp")
+        self.assertEqual(document["status"]["state"], "Ready")
+
+    def test_service_traffic_does_not_turn_missing_window_into_zero(self):
+        self.assertEqual(controller["service_traffic_index"]([], 120, 1_800_000_000), {})
+
     def test_component_assessment_uses_only_formal_state(self):
         legacy = {"observedAt": "2027-01-15T08:00:00Z", "o": .9, "s": .8, "i": .7}
         formal = {"modelVersion": "networking.re8ch.com/measurement-model-v1alpha1",
