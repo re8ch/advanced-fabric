@@ -34,6 +34,17 @@ class NetworkQualityTest(unittest.TestCase):
         self.assertIsNone(result["r640"][0]["o"])
         self.assertIsNone(result["r640"][0]["s"])
         self.assertIsNone(result["r640"][0]["i"])
+        self.assertEqual(result["r640"][0]["confidenceO"], 0)
+
+    def test_optimality_is_relative_to_measured_feasible_alternative(self):
+        measurements = {("a", "host"): {"fresh": True, "observedAt": "2026-09-08T00:00:00Z", "paths": [
+            {"measurementDefinitionId": "path-quality-v1", "pathRole": "current", "lossRatio": 0, "p95Ms": 20},
+            {"measurementDefinitionId": "path-quality-v1", "pathRole": "alternative", "lossRatio": 0, "p95Ms": 10}]}}
+        snapshot = controller["osi_snapshot"]({"name": "a"}, {}, measurements)
+        self.assertIsNotNone(snapshot["o"])
+        self.assertLess(snapshot["o"], 1)
+        self.assertIsNone(snapshot["s"])
+        self.assertIsNone(snapshot["i"])
 
     def test_stale_desired_nodes_includes_legacy_entries_absent_from_spec(self):
         stale = controller["stale_desired_nodes"](
@@ -57,8 +68,8 @@ class NetworkQualityTest(unittest.TestCase):
 
     def test_evidence_planner_closes_task_after_collector_reports_it(self):
         now = 1_800_000_000
-        nodes = [{"name": "a", "provider": "p1", "asn": 1, "failureDomain": "d1", "gateway": "g1", "tunnel": "t1"},
-                 {"name": "b", "provider": "p2", "asn": 2, "failureDomain": "d2", "gateway": "g2", "tunnel": "t2"}]
+        nodes = [{"name": "a", "isp": "p1", "asn": 1, "gateway": "g1", "tunnel": "t1", "physicalPath": "fiber-a"},
+                 {"name": "b", "isp": "p2", "asn": 2, "gateway": "g2", "tunnel": "t2", "physicalPath": "fiber-b"}]
         actual = [{"metadata": {"name": name}} for name in ("a", "b")]
         first = controller["evidence_plan"](nodes, actual, [], {"freshnessSeconds": 120}, 7, now)
         task = next(item for item in first["tasks"] if item["sourceNode"] == "a" and item["sourcePlane"] == "host")

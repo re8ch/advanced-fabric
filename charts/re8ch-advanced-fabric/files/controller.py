@@ -20,6 +20,23 @@ TOKEN = open("/var/run/secrets/kubernetes.io/serviceaccount/token", encoding="ut
 CA = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 CONTEXT = ssl.create_default_context(cafile=CA)
 ADVISOR_URL = os.environ.get("ADVISOR_URL", "http://re8ch-routing-advisor.qianwen-ops.svc.cluster.local:9790")
+MEASUREMENT_DEFINITIONS = {
+    "path-quality-v1": {"scope": "source node/plane to one selected path endpoint", "unit": "loss ratio and milliseconds",
+        "samplingProcedure": "bounded TCP attempts at configured cadence", "timeWindow": "one collector interval",
+        "failureSemantics": "timeout/refusal is loss; absent endpoint is missing", "uncertainty": "finite samples and TCP-only reachability",
+        "measurementCost": "samples TCP handshakes per path"},
+    "dns-quality-v1": {"scope": "source node/plane to one configured resolver endpoint", "unit": "failure ratio and milliseconds",
+        "samplingProcedure": "bounded DNS queries at configured cadence", "timeWindow": "one collector interval",
+        "failureSemantics": "timeout or invalid response is failure; absent resolver is missing", "uncertainty": "finite samples and resolver-cache effects",
+        "measurementCost": "samples DNS queries per resolver"},
+    "temporal-stability-v1": {"scope": "one source node across host and pod planes", "unit": "normalized invariance",
+        "samplingProcedure": "rolling loss/latency series plus BGP and route counters", "timeWindow": "collector history window",
+        "failureSemantics": "insufficient window or missing churn is unknown", "uncertainty": "bounded rolling-window estimator",
+        "measurementCost": "retained aggregates; no additional packets"},
+    "failure-domain-graph-v1": {"scope": "feasible path dependency graph", "unit": "normalized independent-domain ratio",
+        "samplingProcedure": "enumerate gateway/ISP/ASN/tunnel/physical-path dependencies", "timeWindow": "topology observation timestamp",
+        "failureSemantics": "missing dependency edge is unknown", "uncertainty": "declared topology may lag physical reality",
+        "measurementCost": "metadata and route observation only"}}
 
 
 def request(method, path, body=None):
@@ -113,7 +130,7 @@ def evidence_plan(spec_nodes, node_objects, configmaps, standard, generation, no
                 missing.append("stability")
             independent = [peer for peer in active if peer["name"] != node["name"] and all(
                 peer.get(key) not in (None, "", node.get(key))
-                for key in ("provider", "asn", "failureDomain", "gateway", "tunnel"))]
+                for key in ("gateway", "isp", "asn", "tunnel", "physicalPath"))]
             if not independent:
                 missing.append("independence")
             failed = [] if not result else [path for path in result.get("paths", [])
@@ -165,36 +182,44 @@ def node_inferences(plan, configmaps, standard, now=None):
 
 
 def osi_snapshot(node, status, measurements):
-    """Normalize O/S/I to [0,1], preserving unavailable dimensions as null."""
+    """Evaluate independent formal dimensions without proxy substitution."""
     current = [item for key, item in measurements.items() if key[0] == node["name"] and item.get("fresh")]
     paths = [path for item in current for path in item.get("paths", [])]
     optimality = None
-    if paths and all(path.get("lossRatio") is not None for path in paths):
-        success = sum(1 - max(0, min(1, float(path["lossRatio"]))) for path in paths) / len(paths)
-        latencies = [float(path["p95Ms"]) for path in paths if path.get("p95Ms") is not None]
-        if latencies:
-            optimality = max(0, min(1, .7 * success + .3 * math.exp(-max(latencies) / 200)))
+    comparable = [path for path in paths if path.get("measurementDefinitionId") == "path-quality-v1" and
+                  path.get("feasible", True) and path.get("lossRatio") is not None and path.get("p95Ms") is not None]
+    current_paths = [path for path in comparable if path.get("pathRole") == "current"]
+    alternatives = [path for path in comparable if path.get("pathRole") == "alternative"]
+    if current_paths and alternatives:
+        quality = lambda path: .7 * (1 - max(0, min(1, float(path["lossRatio"])))) + \
+                               .3 * math.exp(-float(path["p95Ms"]) / 200)
+        current_quality = sum(map(quality, current_paths)) / len(current_paths)
+        best_feasible = max([current_quality] + [quality(path) for path in alternatives])
+        optimality = 1 if best_feasible == 0 else max(0, min(1, current_quality / best_feasible))
     histories = [item.get("history", {}) for item in current]
     dynamics = status.get("routeDynamics", {})
     stability = None
-    if len(histories) == 2 and all(int(item.get("windowSamples") or 0) >= 3 for item in histories) and int(dynamics.get("samples") or 0) >= 3:
+    if len(histories) == 2 and all(int(item.get("windowSamples") or 0) >= 3 and item.get("windowSeconds") is not None and
+                                  item.get("lossBurstRatio") is not None for item in histories) and int(dynamics.get("samples") or 0) >= 3:
         loss_sigma = max(float(item.get("lossStdDev") or 0) for item in histories)
         latency_sigma = max(float(item.get("p95StdDevMs") or 0) for item in histories)
+        burst = max(float(item["lossBurstRatio"]) for item in histories)
         churn = (float(dynamics.get("bgpChanges") or 0) + float(dynamics.get("routeChanges") or 0)) / max(1, float(dynamics["samples"]))
-        stability = max(0, min(1, 1 - (.5 * min(1, loss_sigma / .25) +
-                                        .3 * min(1, latency_sigma / 200) + .2 * min(1, churn))))
+        stability = max(0, min(1, 1 - (.35 * min(1, loss_sigma / .25) + .25 * min(1, latency_sigma / 200) +
+                                        .2 * min(1, burst) + .2 * min(1, churn))))
     candidates = {entry.get("peer") for items in status.get("pathRankings", {}).values() for entry in items or [] if entry.get("peer")}
     peers = [peer for peer in status.get("peerRoutes", []) if peer.get("name") in candidates]
-    dimensions = ("provider", "asn", "failureDomain", "gateway", "tunnel")
+    dimensions = ("gateway", "isp", "asn", "tunnel", "physicalPath")
     independence = None
     if peers and all(all(peer.get(key) not in (None, "") for key in dimensions) for peer in peers):
         independence = sum(min(1, len({str(peer[key]) for peer in peers}) / len(peers)) for key in dimensions) / len(dimensions)
     observed = max([status.get("observedAt", "")] + [item.get("observedAt", "") for item in current])
-    known = sum(value is not None for value in (optimality, stability, independence))
-    confidence = min(1, known / 3 * .75 + len(current) / 2 * .25)
     return {"observedAt": observed, "o": None if optimality is None else round(optimality, 3),
             "s": None if stability is None else round(stability, 3),
-            "i": None if independence is None else round(independence, 3), "confidence": round(confidence, 3)}
+            "i": None if independence is None else round(independence, 3),
+            "confidenceO": round(min(1, len(current_paths) / 2) * min(1, len(alternatives) / 2), 3),
+            "confidenceS": round(min(1, len(histories) / 2) * min(1, float(dynamics.get("samples") or 0) / 10), 3),
+            "confidenceI": round(min(1, len(peers) / 3), 3) if independence is not None else 0.0}
 
 
 def append_osi_history(existing, nodes, statuses, measurements, limit=96):
@@ -419,7 +444,8 @@ def reconcile():
                                                        name in guarded_api_nodes),
                   "podProfiles": profiles, "pathRankings": rankings.get(name, {}),
                   "peers": [{key: peer.get(key) for key in ("name", "internalIP", "acceleratedIP", "podCIDR", "role", "class",
-                                                                  "provider", "region", "failureDomain", "gateway", "tunnel", "asn")}
+                                                                  "provider", "isp", "region", "failureDomain", "gateway", "tunnel",
+                                                                  "physicalPath", "asn")}
                             for peer in active_nodes if peer.get("name") != name],
                   "weightedEcmp": bool(spec.get("weightedEcmp", {}).get("enabled"))}, sort_keys=True)
                  for name, profiles in resolved.items()},
@@ -461,6 +487,11 @@ def reconcile():
                       "app.kubernetes.io/component": "osi-history"},
                      {"schemaVersion": "networking.re8ch.com/osi-history-v1alpha1", "nodes": osi_history},
                      "history.json")
+    upsert_configmap("advanced-fabric-measurement-model",
+                     {"app.kubernetes.io/name": "re8ch-advanced-fabric",
+                      "app.kubernetes.io/component": "measurement-model"},
+                     {"schemaVersion": "networking.re8ch.com/measurement-model-v1alpha1",
+                      "definitions": MEASUREMENT_DEFINITIONS}, "definitions.json")
     for (namespace, name), status in policy_status.items():
         request("PATCH", f"/apis/networking.re8ch.com/v1alpha1/namespaces/{namespace}/trafficpolicies/{name}/status", {"status": status})
     api_ready_nodes = sorted(name for name in eligible_api_nodes if ready.get(name, False))
