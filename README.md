@@ -52,6 +52,39 @@ The self-contained component boundary and provider-neutral API for ingress,
 scheduling, failover, DNS, UI and other consumers is documented in
 [`docs/component-contract.md`](docs/component-contract.md).
 
+### Service inflow measurement
+
+Advanced Fabric accepts completed service-flow windows from any dataplane
+collector (for example Hubble, a Gateway implementation, or a metrics adapter).
+The collector publishes a ConfigMap in the observed Service namespace with
+`app.kubernetes.io/component=service-traffic` and a `measurement.json` value:
+
+```json
+{
+  "observedAt": "2026-09-09T06:00:00Z",
+  "windowSeconds": 60,
+  "collector": "hubble-flow-adapter",
+  "samples": [
+    {
+      "namespace": "example",
+      "service": "api",
+      "node": "worker-a",
+      "receivedBytes": 1048576,
+      "receivedPackets": 8192,
+      "requests": 1200
+    }
+  ]
+}
+```
+
+Counters are concrete values for that non-overlapping completed window, not
+cumulative process counters. O and S are the destination-node values weighted
+by received bytes (falling back to packets, then requests). I is normalized
+inverse HHI over the receiving nodes' declared failure domains. The resulting
+Service `NetworkPathAssessment` includes counters, rates, window, sample count,
+collector names, confidence, and each formula's numerator and denominator.
+Invalid, missing, future work, and stale samples never become zero-valued OSI.
+
 Public defaults are safe: runtime components disabled until explicitly enabled,
 observe-only mode, no node inventory or credentials, no topology-authority
 mutations, and weighted ECMP disabled.
@@ -66,7 +99,7 @@ NWQ-1/DNSQ-1 measurements. Enable it with
 ```sh
 helm upgrade --install re8ch-network-fabric \
   oci://ghcr.io/re8ch/charts/re8ch-advanced-fabric \
-  --version 0.17.1 \
+  --version 0.20.0 \
   --namespace advanced-fabric --create-namespace
 ```
 
