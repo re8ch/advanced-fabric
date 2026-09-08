@@ -39,6 +39,9 @@ spec:
             - {name: GATEWAY_SECTION, value: {{ .Values.advancedFabric.virtualIngress.gateway.sectionName | quote }}}
             - {name: PUBLIC_ADDRESS, value: {{ .Values.advancedFabric.virtualIngress.publicAddress | quote }}}
             - {name: RECONCILE_INTERVAL_SECONDS, value: {{ .Values.advancedFabric.virtualIngress.reconcileIntervalSeconds | quote }}}
+            - {name: ADOPT_ENABLED, value: {{ .Values.advancedFabric.virtualIngress.adoption.enabled | quote }}}
+            - {name: ADOPT_SOURCE_CLASS, value: {{ .Values.advancedFabric.virtualIngress.adoption.sourceClassName | quote }}}
+            - {name: ADOPT_EXCLUSIONS, value: {{ join "," .Values.advancedFabric.virtualIngress.adoption.exclusions | quote }}}
           securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true, runAsNonRoot: true, runAsUser: 65534}
           resources: {requests: {cpu: 10m, memory: 24Mi}, limits: {cpu: 100m, memory: 64Mi}}
           volumeMounts: [{name: runtime, mountPath: /runtime, readOnly: true}, {name: tmp, mountPath: /tmp}]

@@ -65,6 +65,10 @@ advancedFabric:
     gateway: {name: re8ch-gateway-canary, namespace: kube-system, sectionName: http}
     publicAddress: ""
     reconcileIntervalSeconds: 15
+    adoption:
+      enabled: false
+      sourceClassName: traefik
+      exclusions: []
   dns:
     enabled: false
     image: python:3.13-alpine@sha256:540c7d91f98ff6880174c40e99067bf5941eb54d818a7a5e094d188b196a934d
