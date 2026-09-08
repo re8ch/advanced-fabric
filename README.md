@@ -48,6 +48,11 @@ The first repository experiment report, with a versioned summary of the
 historical evidence that motivated this model, is
 [`docs/experiment-report-2026-09-08.md`](docs/experiment-report-2026-09-08.md).
 
+The proposed consumer-facing contract and phased agenda for allowing ingress,
+DNS and edge-selection systems to use this evidence without absorbing fabric
+implementation details is documented in
+[`docs/public-edge-consumer-integration-agenda.md`](docs/public-edge-consumer-integration-agenda.md).
+
 Public defaults are safe: runtime components disabled until explicitly enabled,
 observe-only mode, no node inventory or credentials, no topology-authority
 mutations, and weighted ECMP disabled.
