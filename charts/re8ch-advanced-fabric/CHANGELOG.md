@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.12.0
+
+- Replace snapshot freshness and candidate-peer count proxies with an explicit
+  Measurement → Evidence → Inference → Recommendation → Validation pipeline.
+- Add rolling loss/p95 variance, BGP and route churn, host/pod DNS divergence,
+  evidence freshness and confidence-aware rule diagnosis.
+- Evaluate failure independence from provider, ASN, failure domain, gateway and
+  tunnel metadata, and require remeasurement after shadow probes or route changes.
+- Put O/S/I and diagnosis on the Headlamp landing view and move raw snapshots
+  below the decision layer.
+
 ## 0.11.7
 
 - Return authoritative NODATA for existing Kubernetes Service names that do not

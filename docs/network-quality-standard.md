@@ -158,6 +158,33 @@ fabric controller. The first safe implementation should publish a hedge
 recommendation and counterfactual metrics in observe-only mode before any
 workload opts in.
 
+### Evidence and decision pipeline
+
+The UI and automation must preserve this ordering and must not promote a proxy
+into a conclusion:
+
+1. **Measurement** records directed host/pod paths, DNS results, timestamps,
+   route state and BGP state.
+2. **Evidence** derives current loss/p95, rolling loss and latency variance,
+   BGP/route churn, host/pod divergence and provider/ASN/failure-domain/gateway/
+   tunnel identity. Freshness says only whether evidence is usable.
+3. **Inference** applies explicit rules. Degradation in both host and pod planes
+   suggests a shared dataplane or upstream fault; host DNS loss with healthy pod
+   DNS suggests resolver/datapath divergence. BGP completeness is corroborating
+   control-plane evidence, never a dataplane health score.
+4. **Recommendation** keeps the current route, requests missing measurement, or
+   proposes an independent shadow path. A candidate count is not independence.
+5. **Validation** repeats host and pod measurement after a shadow probe or route
+   switch. The recommendation remains unvalidated until post-change evidence
+   confirms lower loss/latency without unacceptable churn.
+
+Optimality compares current evidence with measured alternatives; an advisor
+score is labelled candidate evidence rather than measured improvement.
+Stability requires a historical window and route/BGP dynamics; a fresh
+singleton is `unknown`. Independence requires complete provider, ASN,
+failure-domain, gateway and tunnel metadata. Missing, stale or incomplete
+evidence produces `unknown` with reduced confidence rather than a health claim.
+
 ## Evidence retention
 
 Each host and pod probe atomically writes a separate Prometheus textfile into

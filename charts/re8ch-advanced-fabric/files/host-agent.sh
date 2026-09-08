@@ -5,6 +5,7 @@ trap 'rc=$?; [ "$rc" -eq 0 ] || echo "advanced-fabric-agent: node=${NODE_NAME:-u
 NODE_FILE="/desired/${NODE_NAME}.json"
 READY=/run/advanced-fabric-ready
 STATUS_FILE=/status/status.json
+STATE_FILE=/status/dynamics.json
 rm -f "${READY}"
 
 host() { nsenter -t 1 -n chroot /host "$@"; }
@@ -30,7 +31,8 @@ publish_status() {
   routes=$(host ip -j route show table main 2>/dev/null || printf '[]')
   ecmp=$(printf '%s' "$routes" | jq -c '[.[] | select(((.nexthops // []) | length) > 1) | {dst: (.dst // "default"), protocol, metric, nexthops: [.nexthops[] | {gateway, dev, weight}]}]' 2>/dev/null || printf '[]')
   peers=$(jq -c '.peers // []' "${NODE_FILE}")
-  peer_routes=$(printf '%s' "$peers" | jq -c '[.[] | {name, internalIP, acceleratedIP, podCIDR}]')
+  peer_routes=$(printf '%s' "$peers" | jq -c '[.[] | {name, internalIP, acceleratedIP, podCIDR,
+    provider, region, failureDomain, gateway, tunnel, asn}]')
   rankings=$(jq -c '.pathRankings // {}' "${NODE_FILE}")
   api_config=$(jq -c '.controlPlaneApi // {enabled:false,eligible:false}' "${NODE_FILE}")
   api_healthy=false
@@ -41,16 +43,27 @@ publish_status() {
       api_healthy=true
     fi
   fi
+  bgp_fingerprint=$(printf '%s' "$bgp" | jq -Sc '[.. | objects | select(has("state") or has("peerState")) |
+    {peer:(.peerId // .hostname // .neighbor // "unknown"),state:(.state // .peerState // "unknown")}]' | sha256sum | awk '{print $1}')
+  route_fingerprint=$(printf '%s' "$routes" | jq -Sc '[.[] | {dst:(.dst // "default"),protocol,metric,
+    nexthops:(.nexthops // [])}]' | sha256sum | awk '{print $1}')
+  if [ -s "${STATE_FILE}" ]; then dynamics=$(cat "${STATE_FILE}"); else
+    dynamics=$(jq -cn --arg now "$now" '{startedAt:$now,samples:0,bgpChanges:0,routeChanges:0}'); fi
+  dynamics=$(printf '%s' "$dynamics" | jq -c --arg bgp "$bgp_fingerprint" --arg route "$route_fingerprint" '
+    .samples += 1 | .bgpChanges += (if .bgpFingerprint and .bgpFingerprint != $bgp then 1 else 0 end) |
+    .routeChanges += (if .routeFingerprint and .routeFingerprint != $route then 1 else 0 end) |
+    .bgpFingerprint=$bgp | .routeFingerprint=$route')
+  printf '%s\n' "$dynamics" >"${STATE_FILE}.tmp"; mv "${STATE_FILE}.tmp" "${STATE_FILE}"
   status=$(jq -cn \
     --arg node "$NODE_NAME" --arg observedAt "$now" --arg datapath "$datapath" \
     --arg frr "$frr_state" --argjson tunnels "$tunnel_interfaces" \
     --argjson bgp "$bgp" --argjson bfd "$bfd" --argjson ecmp "$ecmp" \
     --argjson bgpRib "$bgp_rib" --argjson peers "$peer_routes" --argjson rankings "$rankings" \
-    --argjson controlPlaneApi "$api_config" --argjson controlPlaneApiHealthy "$api_healthy" \
+    --argjson controlPlaneApi "$api_config" --argjson controlPlaneApiHealthy "$api_healthy" --argjson dynamics "$dynamics" \
     '{schemaVersion:"networking.re8ch.com/v1alpha1",node:$node,observedAt:$observedAt,
       datapath:{mode:$datapath,tunnelInterfaces:$tunnels},frr:{state:$frr,bgp:$bgp,bfd:$bfd},
       ecmpRoutes:$ecmp,bgpRib:$bgpRib,peerRoutes:$peers,pathRankings:$rankings,
-      controlPlaneApi:($controlPlaneApi + {localHealthy:$controlPlaneApiHealthy})}')
+      controlPlaneApi:($controlPlaneApi + {localHealthy:$controlPlaneApiHealthy}),routeDynamics:$dynamics}')
   printf '%s\n' "$status" >"${STATUS_FILE}.tmp"
   mv "${STATUS_FILE}.tmp" "${STATUS_FILE}"
 }

@@ -19,13 +19,22 @@ def load_functions(path, names, namespace):
 controller = load_functions(ROOT / "charts/re8ch-advanced-fabric/files/controller.py",
                             {"parse_time", "network_quality"}, {"datetime": datetime, "json": json, "time": time})
 probe = load_functions(ROOT / "charts/re8ch-advanced-fabric/files/conformance-probe.py",
-                       {"percentile", "encode_name", "dns_packet", "dns_rcode", "prometheus_escape",
+                       {"percentile", "history_summary", "encode_name", "dns_packet", "dns_rcode", "prometheus_escape",
                         "labels", "parse_observed_time", "prometheus_text"},
                        {"random": __import__("random"), "struct": __import__("struct"),
-                        "NODE": "a", "PLANE": "host"})
+                        "statistics": __import__("statistics"), "INTERVAL": 30, "NODE": "a", "PLANE": "host"})
 
 
 class NetworkQualityTest(unittest.TestCase):
+    def test_history_summary_reports_variance_not_freshness(self):
+        result = probe["history_summary"]([{"lossRatio": 0, "p95Ms": 10},
+                                            {"lossRatio": .5, "p95Ms": 30},
+                                            {"lossRatio": 1, "p95Ms": None}])
+        self.assertEqual(result["windowSamples"], 3)
+        self.assertEqual(result["lossMean"], .5)
+        self.assertGreater(result["lossStdDev"], 0)
+        self.assertEqual(result["p95StdDevMs"], 10)
+
     def test_13_node_matrix_requires_676_directed_paths(self):
         result = controller["network_quality"]([], 13, {"minimumCoverageRatio": 1})
         self.assertEqual(result["expectedPaths"], 676)

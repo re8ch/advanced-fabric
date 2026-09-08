@@ -250,7 +250,8 @@ def reconcile():
                   "transaction": make_api_transaction(name, control_plane_api, api_operations.get(name, {}),
                                                        name in guarded_api_nodes),
                   "podProfiles": profiles, "pathRankings": rankings.get(name, {}),
-                  "peers": [{key: peer.get(key) for key in ("name", "internalIP", "acceleratedIP", "podCIDR", "role", "class")}
+                  "peers": [{key: peer.get(key) for key in ("name", "internalIP", "acceleratedIP", "podCIDR", "role", "class",
+                                                                  "provider", "region", "failureDomain", "gateway", "tunnel", "asn")}
                             for peer in spec["nodes"] if peer.get("name") != name],
                   "weightedEcmp": bool(spec.get("weightedEcmp", {}).get("enabled"))}, sort_keys=True)
                  for name, profiles in resolved.items()}}

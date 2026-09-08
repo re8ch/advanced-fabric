@@ -10,8 +10,9 @@ type FabricStatus = {
   frr?: {state?: string; bgp?: unknown; bfd?: unknown};
   bgpRib?: Array<{prefix: string; paths: any[]}>;
   ecmpRoutes?: unknown[];
-  peerRoutes?: unknown[];
+  peerRoutes?: Array<{name?: string; provider?: string; region?: string; failureDomain?: string; gateway?: string; tunnel?: string; asn?: number}>;
   pathRankings?: Record<string, unknown>;
+  routeDynamics?: {startedAt?: string; samples?: number; bgpChanges?: number; routeChanges?: number};
 };
 
 type QualitySnapshot = {
@@ -20,7 +21,75 @@ type QualitySnapshot = {
   observedAt?: string;
   paths?: Array<{lossRatio?: number; p95Ms?: number}>;
   dns?: Array<{serverRole?: string; protocol?: string; failureRatio?: number; p95Ms?: number}>;
+  history?: {windowSamples?: number; windowSeconds?: number; lossMean?: number; lossStdDev?: number; p95MeanMs?: number; p95StdDevMs?: number};
 };
+
+type IntelligenceRow = {node: string; optimality: string; stability: string; independence: string;
+  diagnosis: string; recommendation: string; validation: string; confidence: string; severity: 'error'|'warning'|'success'|'info'};
+
+const FRESHNESS_MS = 120000;
+
+function fresh(item?: {observedAt?: string}) {
+  const value = Date.parse(item?.observedAt || '');
+  return Number.isFinite(value) && Date.now() - value <= FRESHNESS_MS;
+}
+
+function buildIntelligence(status: FabricStatus, quality: QualitySnapshot[]): IntelligenceRow {
+  const statusFresh = fresh(status);
+  const samples = quality.filter(item => item.sourceNode === status.node);
+  const current = samples.filter(fresh);
+  const host = current.find(item => item.sourcePlane === 'host');
+  const pod = current.find(item => item.sourcePlane === 'pod');
+  if (!host && !pod) return {node: status.node, optimality: 'unknown', stability: 'unknown', independence: 'unknown',
+    diagnosis: 'missing or stale measurement', recommendation: 'restore host and pod probes before changing routes',
+    validation: 'await two fresh planes and repeat the full matrix', confidence: 'none', severity: 'info'};
+
+  const paths = current.flatMap(item => item.paths || []);
+  const lossCount = paths.filter(path => Number(path.lossRatio || 0) > 0).length;
+  const worstP95 = Math.max(0, ...paths.map(path => Number(path.p95Ms || 0)));
+  const lossRatio = paths.length ? lossCount / paths.length : 1;
+  const candidatePeers = new Set(Object.values(status.pathRankings || {}).flatMap((items: any) =>
+    (items || []).map((item: any) => item.peer).filter(Boolean)));
+  const candidateScores = Object.values(status.pathRankings || {}).flatMap((items: any) =>
+    (items || []).map((item: any) => Number(item.score)).filter(Number.isFinite)).sort((a, b) => a - b);
+  const domains = new Set((status.peerRoutes || []).filter(peer => candidatePeers.has(peer.name)).map(peer =>
+    [peer.provider, peer.asn, peer.failureDomain, peer.gateway, peer.tunnel].map(value => value || '?').join('/')));
+  const metadataComplete = statusFresh && candidatePeers.size > 0 && domains.size > 0 && ![...domains].some(value => value.includes('?'));
+  const histories = current.map(item => item.history).filter(Boolean) as NonNullable<QualitySnapshot['history']>[];
+  const historyReady = histories.length === current.length && histories.every(item => Number(item.windowSamples || 0) >= 3);
+  const lossVariance = historyReady ? Math.max(...histories.map(item => Number(item.lossStdDev || 0))) : undefined;
+  const latencyVariance = historyReady ? Math.max(...histories.map(item => Number(item.p95StdDevMs || 0))) : undefined;
+  const changes = Number(status.routeDynamics?.bgpChanges || 0) + Number(status.routeDynamics?.routeChanges || 0);
+  const dynamicsReady = statusFresh && Number(status.routeDynamics?.samples || 0) >= 3;
+  const dnsFailures = (item?: QualitySnapshot) => (item?.dns || []).filter(entry => Number(entry.failureRatio || 0) > 0).length;
+  const hostDns = dnsFailures(host), podDns = dnsFailures(pod);
+  const bgp = bgpPeers(status.frr?.bgp).split('/').map(Number);
+  const bgpIncomplete = bgp.length === 2 && bgp[1] > 0 && bgp[0] < bgp[1];
+  let diagnosis = 'dataplane within the current snapshot envelope';
+  let recommendation = 'keep current path and continue historical observation';
+  let validation = 'repeat measurement after any topology or policy change';
+  let severity: IntelligenceRow['severity'] = 'success';
+  if (hostDns > 0 && podDns === 0) {
+    diagnosis = 'host resolver and pod DNS datapath divergence'; recommendation = 'inspect host resolver/upstream path; do not change pod DNS'; severity = 'warning';
+  } else if (host && pod && lossRatio >= .25) {
+    diagnosis = 'shared host/pod dataplane or upstream degradation'; recommendation = 'shadow-probe a failure-domain-independent path before switching';
+    validation = 'switch only if shadow loss and p95 improve, then re-run both planes'; severity = 'error';
+  } else if (bgpIncomplete && lossRatio < .25 && worstP95 < 100) {
+    diagnosis = 'BGP incomplete without matching dataplane degradation'; recommendation = 'repair peer coverage separately; retain the measured path'; severity = 'warning';
+  } else if (!host || !pod) {
+    diagnosis = 'host/pod evidence incomplete'; recommendation = 'restore the missing plane before route action'; severity = 'info';
+  } else if (lossCount > 0) {
+    diagnosis = 'partial dataplane degradation'; recommendation = 'compare an independent shadow path'; severity = 'warning';
+  }
+  const alternativeEvidence = candidateScores.length >= 2 ?
+    `candidate scores ${candidateScores[0]} → ${candidateScores[1]}` : 'alternative path unmeasured';
+  return {node: status.node,
+    optimality: `${Math.round((1 - lossRatio) * 1000) / 10}% loss-free · p95 ${Math.round(worstP95)} ms · ${alternativeEvidence}`,
+    stability: historyReady && dynamicsReady ? `loss σ ${lossVariance} · p95 σ ${latencyVariance} ms · churn ${changes}` : 'unknown · historical baseline pending',
+    independence: metadataComplete ? `${domains.size} distinct provider/ASN/domain/gateway/tunnel combinations` : 'unknown · failure-domain metadata/evidence incomplete',
+    diagnosis, recommendation, validation,
+    confidence: host && pod && historyReady && metadataComplete && dynamicsReady ? 'high' : host && pod ? 'medium' : 'low', severity};
+}
 
 function parseStatus(item: any): FabricStatus | null {
   try { return JSON.parse(item.jsonData?.data?.['status.json'] || item.data?.['status.json']); } catch { return null; }
@@ -66,20 +135,8 @@ function Dashboard() {
       dnsSamples: dns.length, failedDns: dns.filter(sample => Number(sample.failureRatio || 0) > 0).length,
       dnsP95: dns.length ? Math.max(...dns.map(sample => Number(sample.p95Ms || 0))) : 0};
   });
-  const staleQuality = quality.filter(item => Date.now() - Date.parse(item.observedAt || '') > 120000).length;
-  const intelligenceRows = statuses.map(status => {
-    const samples = quality.filter(item => item.sourceNode === status.node);
-    const paths = samples.flatMap(item => item.paths || []);
-    const successful = paths.filter(path => Number(path.lossRatio || 0) === 0);
-    const candidatePeers = new Set(Object.values(status.pathRankings || {}).flatMap((items: any) =>
-      (items || []).map((item: any) => item.peer).filter(Boolean)));
-    const newest = samples.map(item => Date.parse(item.observedAt || '')).filter(Number.isFinite).sort((a, b) => b - a)[0];
-    return {node: status.node,
-      optimality: paths.length ? `${Math.round(1000 * successful.length / paths.length) / 10}% paths without loss` : 'no measurement',
-      worstP95: successful.length ? Math.max(...successful.map(path => Number(path.p95Ms || 0))) : '—',
-      stability: newest && Date.now() - newest <= 120000 ? 'fresh snapshot' : 'stale / baseline pending',
-      independence: `${candidatePeers.size} candidate peers`};
-  });
+  const staleQuality = quality.filter(item => !fresh(item)).length;
+  const intelligenceRows = statuses.map(status => buildIntelligence(status, quality));
   const stale = statuses.filter(item => Date.now() - Date.parse(item.observedAt || '') > 90000).length;
   const [selectedNode, setSelectedNode] = React.useState('');
   const effectiveNode = statuses.some(item => item.node === selectedNode) ? selectedNode : statuses[0]?.node || '';
@@ -110,25 +167,26 @@ function Dashboard() {
   })));
   return <Box sx={{p: 2}}>
     <Typography variant="h4">Advanced Fabric</Typography>
-    <Typography color="text.secondary">各节点实际 Native/VXLAN、FRR/BGP/BFD 与内核 ECMP 视图。</Typography>
+    <Typography color="text.secondary">Measurement → Evidence → Inference → Recommendation → Validation；control plane 与 dataplane 分开判定。</Typography>
     {error && <Alert severity="error">无法读取状态 ConfigMap：{String(error)}</Alert>}
     {stale > 0 && <Alert severity="warning">{stale} 个节点状态超过 90 秒未更新</Alert>}
-    <Alert severity="info">质量阈值应在 VictoriaMetrics/Grafana 中形成长期基线后评审；此处显示最新测量覆盖与故障证据，不把单次快照当作质量标准。</Alert>
+    <Alert severity="info">Freshness 只代表证据可用，不代表稳定；候选 peer 数量也不代表故障域独立。切路前必须 shadow probe，切路后必须重新测量。</Alert>
     {staleQuality > 0 && <Alert severity="warning">{staleQuality} 个网络/DNS 测量源超过 120 秒未更新</Alert>}
-    <SectionBox title={`Network & DNS measurement continuity (${quality.length} sources)`}>
+    <SectionBox title="Network intelligence: O / S / I and rule-based diagnosis">
+      <Table data={intelligenceRows} columns={[
+        {header: 'Node', accessorKey: 'node'}, {header: 'O · Optimality', accessorKey: 'optimality'},
+        {header: 'S · Stability', accessorKey: 'stability'}, {header: 'I · Independence', accessorKey: 'independence'},
+        {header: 'Diagnosis', accessorFn: (row: IntelligenceRow) => <Alert icon={false} severity={row.severity}>{row.diagnosis}</Alert>},
+        {header: 'Confidence', accessorKey: 'confidence'}, {header: 'Recommendation', accessorKey: 'recommendation'},
+        {header: 'Validation', accessorKey: 'validation'}
+      ] as any}/>
+    </SectionBox>
+    <SectionBox title={`Raw measurement continuity (${quality.length} sources)`}>
       <Table data={qualityRows} columns={[
         {header: 'Source', accessorKey: 'source'}, {header: 'Observed', accessorKey: 'observed'},
         {header: 'Path samples', accessorKey: 'pathSamples'}, {header: 'Paths with loss', accessorKey: 'failedPaths'},
         {header: 'Worst path p95 ms', accessorKey: 'pathP95'}, {header: 'DNS samples', accessorKey: 'dnsSamples'},
         {header: 'DNS failures', accessorKey: 'failedDns'}, {header: 'Worst DNS p95 ms', accessorKey: 'dnsP95'}
-      ] as any}/>
-    </SectionBox>
-    <SectionBox title="Per-node network intelligence triangle">
-      <Table data={intelligenceRows} columns={[
-        {header: 'Node', accessorKey: 'node'}, {header: 'Optimality evidence', accessorKey: 'optimality'},
-        {header: 'Worst successful p95 ms', accessorKey: 'worstP95'},
-        {header: 'Stability evidence', accessorKey: 'stability'},
-        {header: 'Failure-independence proxy', accessorKey: 'independence'}
       ] as any}/>
     </SectionBox>
     <SectionBox title={`Node network status (${statuses.length})`}><Table data={statuses} columns={columns as any}/></SectionBox>
