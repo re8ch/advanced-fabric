@@ -2,8 +2,8 @@ apiVersion: v2
 name: re8ch-advanced-fabric
 description: RE8CH native-routing, FRR spine/leaf fabric, service VIPs, and network economics
 type: application
-version: 0.17.0
-appVersion: "0.17.0"
+version: 0.17.1
+appVersion: "0.17.1"
 kubeVersion: ">=1.30.0-0"
 home: https://github.com/re8ch/advanced-fabric
 sources:
@@ -21,6 +21,10 @@ annotations:
   artifacthub.io/operatorCapabilities: deep insights
   artifacthub.io/containsSecurityUpdates: "false"
   artifacthub.io/changes: |
+    - kind: fixed
+      description: Pin every externally sourced runtime image by immutable OCI index digest and make the Artifact Hub image inventory match rendered workloads.
+    - kind: fixed
+      description: Replace the unavailable registry.k8s.io BusyBox reference used by the optional Headlamp installer with the digest-pinned Docker Official Image.
     - kind: fixed
       description: Make measurement freshness sampling-duration-aware, probe paths concurrently, and keep evidence tasks pending until their formal requirements are satisfied.
     - kind: added
@@ -118,7 +122,17 @@ annotations:
       platforms:
         - linux/amd64
     - name: network-quality-node-exporter
-      image: quay.io/prometheus/node-exporter:v1.9.1
+      image: quay.io/prometheus/node-exporter:v1.9.1@sha256:d00a542e409ee618a4edc67da14dd48c5da66726bbd5537ab2af9c1dfc442c8a
+      platforms:
+        - linux/amd64
+        - linux/arm64
+    - name: headlamp-plugin-installer
+      image: docker.io/library/busybox:1.36.1@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+      platforms:
+        - linux/amd64
+        - linux/arm64
+    - name: mihomo-gateway
+      image: docker.io/metacubex/mihomo:v1.19.29@sha256:e1d7dadaa9368a52d420d65007e0e0d87cb148d292faa67326eda3fef5757f59
       platforms:
         - linux/amd64
         - linux/arm64
