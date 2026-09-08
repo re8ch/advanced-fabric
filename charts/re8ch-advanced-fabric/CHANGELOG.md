@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.18.0
+
+- Add the opt-in `advanced-fabric` IngressClass and a fail-closed compatibility
+  controller that translates standard host/path/Service backends to HTTPRoute.
+- Keep the request data plane entirely on the selected Cilium Gateway; unsupported
+  Traefik annotations and implementation-specific paths are explicitly rejected.
+
 ## 0.17.1
 
 - Pin all external runtime images by immutable multi-platform OCI digest.

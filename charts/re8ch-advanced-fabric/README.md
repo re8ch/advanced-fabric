@@ -17,12 +17,30 @@ interfaces, FRR/BGP/BFD health and kernel ECMP routes. Enable it with
 ```sh
 helm upgrade --install re8ch-network-fabric \
   oci://ghcr.io/re8ch/charts/re8ch-advanced-fabric \
-  --version 0.17.1 \
+  --version 0.18.0 \
   --namespace advanced-fabric --create-namespace
 ```
 
 Provide deployment-specific nodes and quotas through a private values file.
 See [`examples/inventory.example.yaml`](examples/inventory.example.yaml).
+
+## Virtual Ingress compatibility
+
+`advancedFabric.virtualIngress.enabled=true` installs the opt-in
+`advanced-fabric` IngressClass. Its compatibility controller converts only
+Ingress objects that explicitly select that class into same-namespace,
+owner-referenced HTTPRoutes attached to the configured Cilium Gateway. Request
+traffic goes directly from the Gateway to the declared Service; the chart does
+not run a Traefik-compatible proxy.
+
+The supported migration surface is deliberately narrow: host rules, Prefix or
+Exact paths, and numeric Service ports. Common Traefik entrypoint and TLS flags
+are accepted as migration metadata. Middleware annotations, hostless/default
+backends, named ports and `ImplementationSpecific` paths are rejected and
+reported on the Ingress annotation
+`networking.re8ch.com/virtual-ingress-status`. An Ingress becomes `Ready` only
+after the Gateway reports both `Accepted=True` and `ResolvedRefs=True` for its
+generated HTTPRoute.
 
 ## RouterOS eBGP boundary
 

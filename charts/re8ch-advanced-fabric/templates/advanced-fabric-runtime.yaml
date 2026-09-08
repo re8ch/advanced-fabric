@@ -22,6 +22,17 @@ rules:
   - apiGroups: [networking.re8ch.com]
     resources: [advancedfabrics/status, trafficpolicies/status, networkpathassessments/status]
     verbs: [get, patch, update]
+{{- if .Values.advancedFabric.virtualIngress.enabled }}
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [get, list, watch, patch, update]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses/status]
+    verbs: [get, patch, update]
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [httproutes]
+    verbs: [get, list, watch, create, patch, update]
+{{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
