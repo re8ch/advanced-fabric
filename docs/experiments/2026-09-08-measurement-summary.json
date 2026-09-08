@@ -1,0 +1,40 @@
+{
+  "capturedAt": "2026-09-08T06:09:30Z",
+  "cluster": "r640-k3s",
+  "modelVersion": "networking.re8ch.com/measurement-model-v1alpha1",
+  "historySchema": "networking.re8ch.com/osi-history-v1alpha1",
+  "activeNodes": ["a1-wsl-zt", "amdwsl-zt", "b1-wsl-zt", "domain-ex", "muaya-ecs", "muaya-lightweight", "overseas-kl", "overseas-la", "r640", "suxunji", "vm-20-12-ubuntu", "zan"],
+  "retiredNodesExcludedFromActiveInventory": ["qwen-1", "qwen-2", "qwen-3", "overseas-edge-50"],
+  "r640ControlPlane": {"observedAt": "2026-09-08T06:02:34Z", "frrState": "active", "bgpEstablished": 8, "bgpTotal": 10, "ecmpRoutes": 29},
+  "history": {
+    "a1-wsl-zt": {"snapshots": 96, "firstObservedAt": "2026-09-08T05:15:02Z", "latestObservedAt": "2026-09-08T06:08:55Z"},
+    "amdwsl-zt": {"snapshots": 96, "firstObservedAt": "2026-09-08T05:14:57Z", "latestObservedAt": "2026-09-08T06:08:51Z"},
+    "b1-wsl-zt": {"snapshots": 96, "firstObservedAt": "2026-09-08T05:14:59Z", "latestObservedAt": "2026-09-08T06:08:53Z"},
+    "domain-ex": {"snapshots": 96, "firstObservedAt": "2026-09-08T05:15:03Z", "latestObservedAt": "2026-09-08T06:08:57Z"},
+    "muaya-ecs": {"snapshots": 96, "firstObservedAt": "2026-09-08T05:15:05Z", "latestObservedAt": "2026-09-08T06:09:04Z"},
+    "muaya-lightweight": {"snapshots": 96, "firstObservedAt": "2026-09-08T05:15:09Z", "latestObservedAt": "2026-09-08T06:08:51Z"},
+    "overseas-kl": {"snapshots": 1, "firstObservedAt": "2026-09-05T21:10:41Z", "latestObservedAt": "2026-09-05T21:10:41Z"},
+    "overseas-la": {"snapshots": 70, "firstObservedAt": "2026-09-08T04:41:43Z", "latestObservedAt": "2026-09-08T06:08:49Z"},
+    "r640": {"snapshots": 96, "firstObservedAt": "2026-09-08T05:15:01Z", "latestObservedAt": "2026-09-08T06:08:56Z"},
+    "suxunji": {"snapshots": 1, "firstObservedAt": "2026-09-08T03:26:08Z", "latestObservedAt": "2026-09-08T03:26:08Z"},
+    "vm-20-12-ubuntu": {"snapshots": 96, "firstObservedAt": "2026-09-08T05:15:11Z", "latestObservedAt": "2026-09-08T06:08:57Z"},
+    "zan": {"snapshots": 96, "firstObservedAt": "2026-09-08T05:15:10Z", "latestObservedAt": "2026-09-08T06:08:53Z"}
+  },
+  "selectedMeasurements": [
+    {"node":"r640","plane":"host","observedAt":"2026-09-08T06:01:10Z","pathSamples":24,"pathsWithLoss":11,"worstP95Ms":291.245,"dnsFailures":2,"historyWindowSeconds":240,"lossMean":0.4583,"lossStdDev":0.0,"p95MeanMs":207.5,"p95StdDevMs":65.039},
+    {"node":"r640","plane":"pod","observedAt":"2026-09-08T05:57:53Z","pathSamples":24,"pathsWithLoss":12,"worstP95Ms":336.279,"dnsFailures":0,"historyWindowSeconds":480,"lossMean":0.5077,"lossStdDev":0.0211,"p95MeanMs":249.479,"p95StdDevMs":171.067},
+    {"node":"b1-wsl-zt","plane":"host","observedAt":"2026-09-08T06:09:13Z","pathSamples":24,"pathsWithLoss":5,"worstP95Ms":48.319,"dnsFailures":0},
+    {"node":"b1-wsl-zt","plane":"pod","observedAt":"2026-09-08T06:08:21Z","pathSamples":24,"pathsWithLoss":7,"worstP95Ms":48.54,"dnsFailures":0},
+    {"node":"domain-ex","plane":"host","observedAt":"2026-09-08T05:53:38Z","pathSamples":24,"pathsWithLoss":11,"worstP95Ms":125.095,"dnsFailures":2},
+    {"node":"domain-ex","plane":"pod","observedAt":"2026-09-08T06:03:46Z","pathSamples":24,"pathsWithLoss":12,"worstP95Ms":58.852,"dnsFailures":0},
+    {"node":"muaya-ecs","plane":"host","observedAt":"2026-09-08T05:58:17Z","pathSamples":24,"pathsWithLoss":11,"worstP95Ms":130.821,"dnsFailures":2},
+    {"node":"muaya-ecs","plane":"pod","observedAt":"2026-09-08T05:56:09Z","pathSamples":24,"pathsWithLoss":11,"worstP95Ms":346.3,"dnsFailures":0},
+    {"node":"overseas-edge-50","plane":"host","observedAt":"2026-09-02T04:26:42Z","staleAtCapture":true,"pathSamples":26,"pathsWithLoss":3,"worstP95Ms":185.823,"dnsFailures":4},
+    {"node":"overseas-kl","plane":"host","observedAt":"2026-09-05T21:10:53Z","staleAtCapture":true,"pathSamples":26,"pathsWithLoss":16,"worstP95Ms":182.761,"dnsFailures":2}
+  ],
+  "notes": [
+    "Legacy pre-v0.15 O/S/I values are not comparable with formal v0.15 states.",
+    "Formal O and I remain null until comparable alternatives and complete failure-domain evidence exist.",
+    "This fixture contains no credentials, public-delivery addresses or packet payloads."
+  ]
+}

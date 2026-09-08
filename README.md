@@ -44,6 +44,10 @@ separate confidence value which describes evidence quality and must not alter
 the dimension value. The controller persists timestamped
 `(O,S,I,confidenceO,confidenceS,confidenceI)` states for consumers.
 
+The first repository experiment report, with a versioned summary of the
+historical evidence that motivated this model, is
+[`docs/experiment-report-2026-09-08.md`](docs/experiment-report-2026-09-08.md).
+
 Public defaults are safe: runtime components disabled until explicitly enabled,
 observe-only mode, no node inventory or credentials, no topology-authority
 mutations, and weighted ECMP disabled.
