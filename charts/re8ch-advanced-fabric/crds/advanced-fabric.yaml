@@ -41,11 +41,97 @@ spec:
                 observeDays: {type: integer, minimum: 0}
                 timezone: {type: string}
                 controller: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                componentAPI:
+                  type: object
+                  required: [publishAssessments, validitySeconds]
+                  properties:
+                    publishAssessments: {type: boolean}
+                    validitySeconds: {type: integer, minimum: 30, maximum: 3600}
                 networkQuality: {type: object, x-kubernetes-preserve-unknown-fields: true}
                 weightedEcmp: {type: object, x-kubernetes-preserve-unknown-fields: true}
                 policyRouting: {type: object, x-kubernetes-preserve-unknown-fields: true}
                 nodes: {type: array, items: {type: object, x-kubernetes-preserve-unknown-fields: true}}
             status: {type: object, x-kubernetes-preserve-unknown-fields: true}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata: {name: networkpathassessments.networking.re8ch.com}
+spec:
+  group: networking.re8ch.com
+  scope: Cluster
+  names:
+    plural: networkpathassessments
+    singular: networkpathassessment
+    kind: NetworkPathAssessment
+    shortNames: [npa]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources: {status: {}}
+      additionalPrinterColumns:
+        - {name: Subject, type: string, jsonPath: .spec.subjectRef.name}
+        - {name: State, type: string, jsonPath: .status.state}
+        - {name: Observed, type: date, jsonPath: .status.observedAt}
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [subjectRef, scope]
+              properties:
+                subjectRef:
+                  type: object
+                  required: [apiVersion, kind, name]
+                  properties:
+                    apiVersion: {type: string, minLength: 1}
+                    kind: {type: string, minLength: 1}
+                    name: {type: string, minLength: 1}
+                scope:
+                  type: object
+                  required: [plane, direction, protocol]
+                  properties:
+                    plane: {type: string, enum: [host, pod, host-and-pod]}
+                    direction: {type: string, enum: [forward, return, bidirectional]}
+                    protocol: {type: string, enum: [tcp, udp, mixed]}
+            status:
+              type: object
+              properties:
+                observedAt: {type: string, format: date-time}
+                validUntil: {type: string, format: date-time}
+                state: {type: string, enum: [Ready, Partial, Unknown, Stale, Contradictory]}
+                dimensions:
+                  type: object
+                  properties:
+                    optimality: {type: number, minimum: 0, maximum: 1, nullable: true}
+                    stability: {type: number, minimum: 0, maximum: 1, nullable: true}
+                    independence: {type: number, minimum: 0, maximum: 1, nullable: true}
+                confidence:
+                  type: object
+                  properties:
+                    optimality: {type: number, minimum: 0, maximum: 1}
+                    stability: {type: number, minimum: 0, maximum: 1}
+                    independence: {type: number, minimum: 0, maximum: 1}
+                evidenceRefs:
+                  type: array
+                  items: {type: string}
+                diagnosis: {type: string}
+                recommendation: {type: string}
+                validation: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                conditions:
+                  type: array
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [type]
+                  items:
+                    type: object
+                    required: [type, status, reason, lastTransitionTime]
+                    properties:
+                      type: {type: string}
+                      status: {type: string, enum: ["True", "False", Unknown]}
+                      reason: {type: string}
+                      message: {type: string}
+                      lastTransitionTime: {type: string, format: date-time}
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition

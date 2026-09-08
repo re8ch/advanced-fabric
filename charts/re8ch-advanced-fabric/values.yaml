@@ -54,6 +54,9 @@ advancedFabric:
     enabled: false
   controller:
     nodeSelector: {}
+  componentAPI:
+    publishAssessments: true
+    validitySeconds: 120
   dns:
     enabled: false
     image: python:3.13-alpine@sha256:540c7d91f98ff6880174c40e99067bf5941eb54d818a7a5e094d188b196a934d

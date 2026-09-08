@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.16.0
+
+- Close the component loop with a controller-owned `NetworkPathAssessment` API.
+- Publish independent formal O/S/I values, per-dimension confidence, evidence
+  provenance, diagnosis, recommendation, validation and explicit validity.
+- Prune assessments for nodes that leave active Kubernetes membership.
+- Replace consumer-specific integration planning with a provider-neutral
+  component contract.
+
 ## Unreleased
 
 - Persist the latest 96 normalized O/S/I snapshots per active node in a shared

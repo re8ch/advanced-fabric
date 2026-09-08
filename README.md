@@ -48,10 +48,9 @@ The first repository experiment report, with a versioned summary of the
 historical evidence that motivated this model, is
 [`docs/experiment-report-2026-09-08.md`](docs/experiment-report-2026-09-08.md).
 
-The proposed consumer-facing contract and phased agenda for allowing ingress,
-DNS and edge-selection systems to use this evidence without absorbing fabric
-implementation details is documented in
-[`docs/public-edge-consumer-integration-agenda.md`](docs/public-edge-consumer-integration-agenda.md).
+The self-contained component boundary and provider-neutral API for ingress,
+scheduling, failover, DNS, UI and other consumers is documented in
+[`docs/component-contract.md`](docs/component-contract.md).
 
 Public defaults are safe: runtime components disabled until explicitly enabled,
 observe-only mode, no node inventory or credentials, no topology-authority
@@ -67,7 +66,7 @@ NWQ-1/DNSQ-1 measurements. Enable it with
 ```sh
 helm upgrade --install re8ch-network-fabric \
   oci://ghcr.io/re8ch/charts/re8ch-advanced-fabric \
-  --version 0.15.0 \
+  --version 0.16.0 \
   --namespace advanced-fabric --create-namespace
 ```
 

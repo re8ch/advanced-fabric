@@ -214,7 +214,8 @@ def osi_snapshot(node, status, measurements):
     if peers and all(all(peer.get(key) not in (None, "") for key in dimensions) for peer in peers):
         independence = sum(min(1, len({str(peer[key]) for peer in peers}) / len(peers)) for key in dimensions) / len(dimensions)
     observed = max([status.get("observedAt", "")] + [item.get("observedAt", "") for item in current])
-    return {"observedAt": observed, "o": None if optimality is None else round(optimality, 3),
+    return {"modelVersion": "networking.re8ch.com/measurement-model-v1alpha1", "observedAt": observed,
+            "o": None if optimality is None else round(optimality, 3),
             "s": None if stability is None else round(stability, 3),
             "i": None if independence is None else round(independence, 3),
             "confidenceO": round(min(1, len(current_paths) / 2) * min(1, len(alternatives) / 2), 3),
@@ -232,6 +233,80 @@ def append_osi_history(existing, nodes, statuses, measurements, limit=96):
             values.sort(key=lambda item: item["observedAt"])
         history[node["name"]] = values[-limit:]
     return {name: values for name, values in history.items() if name in {node["name"] for node in nodes}}
+
+
+def assessment_document(node, snapshots, inference, validity_seconds, now=None):
+    """Build the stable consumer API exclusively from formal component state."""
+    now = time.time() if now is None else now
+    formal = [item for item in snapshots if item.get("modelVersion") ==
+              "networking.re8ch.com/measurement-model-v1alpha1"]
+    latest = formal[-1] if formal else {}
+    observed = latest.get("observedAt", "")
+    observed_epoch = parse_time(observed) if observed else None
+    valid_until_epoch = observed_epoch + validity_seconds if observed_epoch is not None else None
+    dimensions = {"optimality": latest.get("o"), "stability": latest.get("s"),
+                  "independence": latest.get("i")}
+    confidence = {"optimality": float(latest.get("confidenceO") or 0),
+                  "stability": float(latest.get("confidenceS") or 0),
+                  "independence": float(latest.get("confidenceI") or 0)}
+    known = sum(value is not None for value in dimensions.values())
+    diagnosis = (inference or {}).get("diagnosis", "evidence-incomplete")
+    if observed_epoch is not None and now > valid_until_epoch:
+        state, reason = "Stale", "EvidenceExpired"
+    elif "contradict" in diagnosis.lower():
+        state, reason = "Contradictory", "ContradictoryEvidence"
+    elif known == 3:
+        state, reason = "Ready", "AllDimensionsAvailable"
+    elif known:
+        state, reason = "Partial", "SomeDimensionsUnavailable"
+    else:
+        state, reason = "Unknown", "RequiredEvidenceUnavailable"
+    valid_until = (datetime.datetime.fromtimestamp(valid_until_epoch, datetime.timezone.utc).isoformat()
+                   .replace("+00:00", "Z")) if valid_until_epoch is not None else None
+    ready = state in ("Ready", "Partial")
+    status = {"state": state, "dimensions": dimensions, "confidence": confidence,
+              "evidenceRefs": sorted(MEASUREMENT_DEFINITIONS), "diagnosis": diagnosis,
+              "recommendation": (inference or {}).get("recommendation", "collect missing evidence"),
+              "validation": (inference or {}).get("validation", {"state": "pending"}),
+              "conditions": [condition("EvidenceReady", ready, reason,
+                                         "%s of 3 O/S/I dimensions available" % known)]}
+    if observed:
+        status["observedAt"] = observed
+    if valid_until:
+        status["validUntil"] = valid_until
+    name = "node-" + node["name"].lower().replace("_", "-").replace(".", "-")
+    return {"apiVersion": "networking.re8ch.com/v1alpha1", "kind": "NetworkPathAssessment",
+            "metadata": {"name": name, "labels": {"app.kubernetes.io/managed-by": "re8ch-advanced-fabric",
+                          "networking.re8ch.com/subject-kind": "Node"}},
+            "spec": {"subjectRef": {"apiVersion": "v1", "kind": "Node", "name": node["name"]},
+                     "scope": {"plane": "host-and-pod", "direction": "bidirectional", "protocol": "mixed"}},
+            "status": status}
+
+
+def publish_assessments(nodes, history, inferences, validity_seconds):
+    """Publish and prune the component-owned, consumer-neutral API objects."""
+    desired = set()
+    inference_index = {item["node"]: item for item in inferences}
+    for node in nodes:
+        document = assessment_document(node, history.get(node["name"], []),
+                                       inference_index.get(node["name"]), validity_seconds)
+        name, status = document["metadata"]["name"], document.pop("status")
+        desired.add(name)
+        path = "/apis/networking.re8ch.com/v1alpha1/networkpathassessments/%s" % name
+        try:
+            request("PATCH", path, document)
+        except urllib.error.HTTPError as exc:
+            if exc.code != 404:
+                raise
+            request("POST", "/apis/networking.re8ch.com/v1alpha1/networkpathassessments", document)
+        request("PATCH", path + "/status", {"status": status})
+    existing = request("GET", "/apis/networking.re8ch.com/v1alpha1/networkpathassessments?labelSelector="
+                       "app.kubernetes.io%2Fmanaged-by%3Dre8ch-advanced-fabric").get("items", [])
+    for item in existing:
+        name = item.get("metadata", {}).get("name")
+        if name and name not in desired:
+            request("DELETE", "/apis/networking.re8ch.com/v1alpha1/networkpathassessments/%s" % name,
+                    {"propagationPolicy": "Background"})
 
 
 def upsert_configmap(name, labels, payload, data_key=None):
@@ -492,6 +567,10 @@ def reconcile():
                       "app.kubernetes.io/component": "measurement-model"},
                      {"schemaVersion": "networking.re8ch.com/measurement-model-v1alpha1",
                       "definitions": MEASUREMENT_DEFINITIONS}, "definitions.json")
+    component_api = spec.get("componentAPI", {})
+    if component_api.get("publishAssessments", True):
+        publish_assessments(active_nodes, osi_history, inferences,
+                            int(component_api.get("validitySeconds", quality_standard.get("freshnessSeconds", 120))))
     for (namespace, name), status in policy_status.items():
         request("PATCH", f"/apis/networking.re8ch.com/v1alpha1/namespaces/{namespace}/trafficpolicies/{name}/status", {"status": status})
     api_ready_nodes = sorted(name for name in eligible_api_nodes if ready.get(name, False))
