@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Use the Kubernetes-injected API Service endpoint for controller reconciliation
+  instead of the accelerated fabric VIP, so dataplane degradation cannot stall
+  evidence planning and status publication.
 - Add a controller-side Evidence Planner that turns missing optimality,
   stability, independence, or freshness evidence into generation-bound probe
   tasks. Host and pod collectors acknowledge completed task IDs so inference,
