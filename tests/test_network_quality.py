@@ -18,8 +18,8 @@ def load_functions(path, names, namespace):
 
 controller = load_functions(ROOT / "charts/re8ch-advanced-fabric/files/controller.py",
                             {"parse_time", "network_quality", "cluster_inventory", "stale_desired_nodes", "measurement_index",
-                             "evidence_plan", "node_inferences"},
-                            {"datetime": datetime, "json": json, "time": time})
+                             "evidence_plan", "node_inferences", "osi_snapshot", "append_osi_history"},
+                            {"datetime": datetime, "json": json, "time": time, "math": __import__("math")})
 probe = load_functions(ROOT / "charts/re8ch-advanced-fabric/files/conformance-probe.py",
                        {"percentile", "history_summary", "encode_name", "dns_packet", "dns_rcode", "prometheus_escape",
                         "labels", "parse_observed_time", "prometheus_text"},
@@ -28,6 +28,13 @@ probe = load_functions(ROOT / "charts/re8ch-advanced-fabric/files/conformance-pr
 
 
 class NetworkQualityTest(unittest.TestCase):
+    def test_osi_history_preserves_unknown_dimensions(self):
+        node = {"name": "r640"}
+        result = controller["append_osi_history"]({}, [node], {"r640": {"observedAt": "2026-09-08T00:00:00Z"}}, {})
+        self.assertIsNone(result["r640"][0]["o"])
+        self.assertIsNone(result["r640"][0]["s"])
+        self.assertIsNone(result["r640"][0]["i"])
+
     def test_stale_desired_nodes_includes_legacy_entries_absent_from_spec(self):
         stale = controller["stale_desired_nodes"](
             {"r640.json": "{}", "qwen-1.json": "{}", "qwen-2.json": "{}"}, {"r640"})
