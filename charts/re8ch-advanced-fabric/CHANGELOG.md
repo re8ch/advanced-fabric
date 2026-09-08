@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Persist the latest 96 normalized O/S/I snapshots per active node in a shared
+  ConfigMap, retaining null for dimensions whose evidence is unavailable.
 - Prune legacy desired-state keys by comparing the existing ConfigMap with
   active Kubernetes membership, including nodes no longer present in CR spec.
 - Use the Kubernetes-injected API Service endpoint for controller reconciliation

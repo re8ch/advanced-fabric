@@ -164,11 +164,56 @@ def node_inferences(plan, configmaps, standard, now=None):
     return results
 
 
-def upsert_configmap(name, labels, payload):
+def osi_snapshot(node, status, measurements):
+    """Normalize O/S/I to [0,1], preserving unavailable dimensions as null."""
+    current = [item for key, item in measurements.items() if key[0] == node["name"] and item.get("fresh")]
+    paths = [path for item in current for path in item.get("paths", [])]
+    optimality = None
+    if paths and all(path.get("lossRatio") is not None for path in paths):
+        success = sum(1 - max(0, min(1, float(path["lossRatio"]))) for path in paths) / len(paths)
+        latencies = [float(path["p95Ms"]) for path in paths if path.get("p95Ms") is not None]
+        if latencies:
+            optimality = max(0, min(1, .7 * success + .3 * math.exp(-max(latencies) / 200)))
+    histories = [item.get("history", {}) for item in current]
+    dynamics = status.get("routeDynamics", {})
+    stability = None
+    if len(histories) == 2 and all(int(item.get("windowSamples") or 0) >= 3 for item in histories) and int(dynamics.get("samples") or 0) >= 3:
+        loss_sigma = max(float(item.get("lossStdDev") or 0) for item in histories)
+        latency_sigma = max(float(item.get("p95StdDevMs") or 0) for item in histories)
+        churn = (float(dynamics.get("bgpChanges") or 0) + float(dynamics.get("routeChanges") or 0)) / max(1, float(dynamics["samples"]))
+        stability = max(0, min(1, 1 - (.5 * min(1, loss_sigma / .25) +
+                                        .3 * min(1, latency_sigma / 200) + .2 * min(1, churn))))
+    candidates = {entry.get("peer") for items in status.get("pathRankings", {}).values() for entry in items or [] if entry.get("peer")}
+    peers = [peer for peer in status.get("peerRoutes", []) if peer.get("name") in candidates]
+    dimensions = ("provider", "asn", "failureDomain", "gateway", "tunnel")
+    independence = None
+    if peers and all(all(peer.get(key) not in (None, "") for key in dimensions) for peer in peers):
+        independence = sum(min(1, len({str(peer[key]) for peer in peers}) / len(peers)) for key in dimensions) / len(dimensions)
+    observed = max([status.get("observedAt", "")] + [item.get("observedAt", "") for item in current])
+    known = sum(value is not None for value in (optimality, stability, independence))
+    confidence = min(1, known / 3 * .75 + len(current) / 2 * .25)
+    return {"observedAt": observed, "o": None if optimality is None else round(optimality, 3),
+            "s": None if stability is None else round(stability, 3),
+            "i": None if independence is None else round(independence, 3), "confidence": round(confidence, 3)}
+
+
+def append_osi_history(existing, nodes, statuses, measurements, limit=96):
+    history = dict(existing or {})
+    for node in nodes:
+        snapshot = osi_snapshot(node, statuses.get(node["name"], {}), measurements)
+        values = list(history.get(node["name"], []))
+        if snapshot["observedAt"] and not any(item.get("observedAt") == snapshot["observedAt"] for item in values):
+            values.append(snapshot)
+            values.sort(key=lambda item: item["observedAt"])
+        history[node["name"]] = values[-limit:]
+    return {name: values for name, values in history.items() if name in {node["name"] for node in nodes}}
+
+
+def upsert_configmap(name, labels, payload, data_key=None):
+    data_key = data_key or ("plan.json" if name.endswith("plan") else "inference.json")
     obj = {"apiVersion": "v1", "kind": "ConfigMap",
            "metadata": {"name": name, "namespace": "kube-system", "labels": labels},
-           "data": {"plan.json" if name.endswith("plan") else "inference.json":
-                    json.dumps(payload, separators=(",", ":"), sort_keys=True)}}
+           "data": {data_key: json.dumps(payload, separators=(",", ":"), sort_keys=True)}}
     path = "/api/v1/namespaces/kube-system/configmaps/%s" % name
     try:
         request("PATCH", path, obj)
@@ -305,6 +350,8 @@ def reconcile():
     if quality_enabled:
         probe_configmaps = request("GET", "/api/v1/namespaces/kube-system/configmaps?labelSelector="
                                    "app.kubernetes.io%2Fcomponent%3Dnetwork-quality").get("items", [])
+    status_configmaps = request("GET", "/api/v1/namespaces/kube-system/configmaps?labelSelector="
+                                "networking.re8ch.com%2Fnode-status%3Dtrue").get("items", [])
     active_nodes, retired_nodes = cluster_inventory(spec["nodes"], node_objects)
     node_index = {node["name"]: node for node in active_nodes}
     declared_index = {node["name"]: node for node in spec["nodes"]}
@@ -393,6 +440,27 @@ def reconcile():
                      {"app.kubernetes.io/name": "re8ch-advanced-fabric",
                       "app.kubernetes.io/component": "inference-engine"},
                      {"generation": plan["generation"], "nodes": inferences})
+    statuses = {}
+    for item in status_configmaps:
+        try:
+            parsed = json.loads(item.get("data", {}).get("status.json", "{}"))
+            if parsed.get("node") in node_index:
+                statuses[parsed["node"]] = parsed
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+    try:
+        history_object = request("GET", "/api/v1/namespaces/kube-system/configmaps/advanced-fabric-osi-history")
+        existing_history = json.loads(history_object.get("data", {}).get("history.json", "{}")).get("nodes", {})
+    except (urllib.error.HTTPError, TypeError, ValueError, json.JSONDecodeError):
+        existing_history = {}
+    measurement_state = measurement_index(probe_configmaps, set(node_index),
+                                          int(quality_standard.get("freshnessSeconds", 120)), time.time())
+    osi_history = append_osi_history(existing_history, active_nodes, statuses, measurement_state)
+    upsert_configmap("advanced-fabric-osi-history",
+                     {"app.kubernetes.io/name": "re8ch-advanced-fabric",
+                      "app.kubernetes.io/component": "osi-history"},
+                     {"schemaVersion": "networking.re8ch.com/osi-history-v1alpha1", "nodes": osi_history},
+                     "history.json")
     for (namespace, name), status in policy_status.items():
         request("PATCH", f"/apis/networking.re8ch.com/v1alpha1/namespaces/{namespace}/trafficpolicies/{name}/status", {"status": status})
     api_ready_nodes = sorted(name for name in eligible_api_nodes if ready.get(name, False))
