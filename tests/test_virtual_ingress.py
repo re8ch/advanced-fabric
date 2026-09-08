@@ -18,6 +18,11 @@ def ingress(annotations=None, path_type="Prefix"):
 
 
 class VirtualIngressTest(unittest.TestCase):
+    def test_runtime_rbac_can_read_the_adoption_gateway(self):
+        runtime = (SCRIPT.parents[1] / "templates/advanced-fabric-runtime.yaml").read_text()
+        self.assertIn("resources: [gateways]", runtime)
+        self.assertIn("verbs: [get, list, watch]", runtime)
+
     def test_translates_standard_ingress_to_owned_httproute(self):
         route = module.translate(ingress({"traefik.ingress.kubernetes.io/router.tls": "true"}))
         self.assertEqual(route["metadata"]["ownerReferences"][0]["uid"], "uid-1")
