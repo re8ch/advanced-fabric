@@ -47,6 +47,25 @@
             "validitySeconds": {"type": "integer", "minimum": 30, "maximum": 3600}
           }
         },
+        "virtualIngress": {
+          "type": "object",
+          "required": ["enabled", "className", "gateway", "publicAddress", "reconcileIntervalSeconds"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "className": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"},
+            "gateway": {
+              "type": "object",
+              "required": ["name", "namespace", "sectionName"],
+              "properties": {
+                "name": {"type": "string", "minLength": 1},
+                "namespace": {"type": "string", "minLength": 1},
+                "sectionName": {"type": "string", "minLength": 1}
+              }
+            },
+            "publicAddress": {"type": "string"},
+            "reconcileIntervalSeconds": {"type": "integer", "minimum": 5, "maximum": 300}
+          }
+        },
         "dns": {
           "type": "object",
           "required": ["enabled", "image", "replicas", "pdbMinAvailable", "clusterDomain", "ttlSeconds", "upstreams", "conditionalForwarders", "service", "doh", "migration"],
