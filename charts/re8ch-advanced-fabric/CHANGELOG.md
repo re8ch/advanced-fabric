@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.17.1
+
+- Pin all external runtime images by immutable multi-platform OCI digest.
+- Synchronize the Artifact Hub image inventory with controller, agent, metrics, DNS, Headlamp installer, and optional mihomo workloads.
+- Replace the unavailable `registry.k8s.io/busybox:1.36.1` Headlamp installer default with the digest-pinned Docker Official Image.
+
 ## 0.17.0
 
 - Bound freshness to the actual sampling duration and collector cadence.

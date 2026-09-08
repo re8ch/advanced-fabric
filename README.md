@@ -66,7 +66,7 @@ NWQ-1/DNSQ-1 measurements. Enable it with
 ```sh
 helm upgrade --install re8ch-network-fabric \
   oci://ghcr.io/re8ch/charts/re8ch-advanced-fabric \
-  --version 0.17.0 \
+  --version 0.17.1 \
   --namespace advanced-fabric --create-namespace
 ```
 

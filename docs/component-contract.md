@@ -218,7 +218,7 @@ therefore does not remove the component's ability to describe that degradation.
 
 ```sh
 helm template advanced-fabric oci://ghcr.io/re8ch/charts/re8ch-advanced-fabric \
-  --version 0.17.0 --set advancedFabric.enabled=true \
+  --version 0.17.1 --set advancedFabric.enabled=true \
   --set advancedFabric.networkQuality.enabled=true >/tmp/advanced-fabric.yaml
 
 kubectl get advancedfabric re8ch
