@@ -22,7 +22,7 @@ controller = load_functions(ROOT / "charts/re8ch-advanced-fabric/files/controlle
                              "measurement_index", "evidence_plan", "node_inferences", "osi_snapshot",
                              "append_osi_history", "assessment_document", "service_traffic_index",
                              "service_osi_snapshot", "service_assessment_document", "path_evidence_document",
-                             "discovered_interventions", "triangle_documents"},
+                             "structural_observations", "discovered_interventions", "triangle_documents"},
                             {"datetime": datetime, "json": json, "time": time, "math": __import__("math"),
                              "hashlib": hashlib,
                              "MEASUREMENT_DEFINITIONS": {"path-quality-v1": {}, "temporal-stability-v1": {},
@@ -30,7 +30,13 @@ controller = load_functions(ROOT / "charts/re8ch-advanced-fabric/files/controlle
                              "TRIANGLE_DEFINITIONS": (
                                  ("redundancy-independence-churn", ("R", "D", "C"), ("R->D", "D->C", "C->R")),
                                  ("responsiveness-inertia-quality", ("K", "H", "Q"), ("K->H", "H->Q", "Q->K")),
-                                 ("redundancy-responsiveness-churn", ("R", "K", "C"), ("R->K", "K->C", "C->R")))})
+                                 ("redundancy-responsiveness-churn", ("R", "K", "C"), ("R->K", "K->C", "C->R"))),
+                             "LATENT_REQUIREMENTS": {
+                                 "Q": ("a_reach", "l_path", "t_rtt"), "K": ("t_state", "t_conv", "t_recover", "delta_ribfib"),
+                                 "H": ("p_route", "x_nh", "t_persist", "f_switch", "a_osc"),
+                                 "C": ("u_bgp", "w_bgp", "lambda_flap", "delta_ribfib", "n_path_change"),
+                                 "R": ("w_ecmp", "m_route", "n_peer", "n_nh", "n_if", "n_alt"),
+                                 "D": ("n_tun", "n_gw", "n_asn", "g_dep", "n_alt")}})
 probe = load_functions(ROOT / "charts/re8ch-advanced-fabric/files/conformance-probe.py",
                        {"percentile", "history_summary", "encode_name", "dns_packet", "dns_rcode", "prometheus_escape",
                         "labels", "parse_observed_time", "prometheus_text"},
@@ -83,6 +89,20 @@ class NetworkQualityTest(unittest.TestCase):
         self.assertEqual(len(triangles), 3)
         self.assertTrue(all(status["state"] == "Open" for _, status in triangles))
         self.assertTrue(all(len(status["missingEvidence"]) == 6 for _, status in triangles))
+
+    def test_structural_tracking_counts_only_valid_observed_symbols(self):
+        measurements = [{"symbol": symbol, "state": "observed", "value": 1}
+                        for symbol in controller["LATENT_REQUIREMENTS"]["Q"]]
+        measurements[0]["state"] = "partial"
+        payload = {"observedAt": "2026-09-09T00:00:00Z", "trackingReady": False,
+                   "trackingGate": {"required": 31, "observed": 30, "missingSymbols": ["a_reach"]},
+                   "trackingValues": {"l_path": {"value": 0, "unit": "ratio"}}, "measurements": measurements}
+        result = controller["structural_observations"]([{"name": "r640"}], {"r640": payload})
+        node = result["nodes"]["r640"]
+        self.assertEqual(node["latent"]["Q"]["state"], "Partial")
+        self.assertEqual(node["latent"]["Q"]["missingSymbols"], ["a_reach"])
+        self.assertFalse(node["trackingReady"])
+        self.assertEqual(node["history"][0]["values"]["l_path"]["value"], 0)
     def test_service_osi_uses_measured_inflow_and_exposes_numeric_calculation(self):
         now = 1_800_000_000
         observed = datetime.datetime.fromtimestamp(now, datetime.timezone.utc).isoformat()

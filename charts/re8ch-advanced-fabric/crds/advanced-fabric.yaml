@@ -95,6 +95,49 @@ spec:
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
+metadata: {name: networkobservationepisodes.networking.re8ch.com}
+spec:
+  group: networking.re8ch.com
+  scope: Cluster
+  names: {plural: networkobservationepisodes, singular: networkobservationepisode, kind: NetworkObservationEpisode, shortNames: [noe]}
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources: {status: {}}
+      additionalPrinterColumns:
+        - {name: Subject, type: string, jsonPath: .spec.subjectRef.name}
+        - {name: Cause, type: string, jsonPath: .spec.cause}
+        - {name: State, type: string, jsonPath: .status.state}
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [subjectRef, cause, detectedAt, windows]
+              properties:
+                subjectRef: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                cause: {type: string, enum: [NaturalRIBFIBChange, NaturalBGPChange, NaturalPathChange, NaturalReachabilityChange]}
+                detectedAt: {type: string, format: date-time}
+                collectorEpoch: {type: string, nullable: true}
+                baseline: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                change: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                criteria: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                windows: {type: object, x-kubernetes-preserve-unknown-fields: true}
+            status:
+              type: object
+              properties:
+                state: {type: string, enum: [Incomplete, Complete, Confounded]}
+                startedAt: {type: string, format: date-time}
+                endedAt: {type: string, format: date-time, nullable: true}
+                measurements: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                evidenceRefs: {type: array, items: {type: string}}
+                missingEvidence: {type: array, items: {type: string}}
+                confounders: {type: array, items: {type: string}}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
 metadata: {name: networktradeoffestimates.networking.re8ch.com}
 spec:
   group: networking.re8ch.com

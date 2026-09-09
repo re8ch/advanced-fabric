@@ -1,8 +1,20 @@
 # Changelog
 
+## 0.23.0
+
+- Upgrade the 31-symbol envelope to `v1alpha2` with validity, freshness,
+  history coverage, source epoch and evidence references.
+- Add restart-aware FRR deltas, Hubble/Gateway receive-byte windows, retained
+  RIB/FIB fingerprints, active bound next-hop probes and topology verification.
+- Add read-only natural `NetworkObservationEpisode` records and keep episode
+  durations absent until stability and recovery conditions complete.
+- Gate tracking independently per node on 31/31 valid observations and export
+  low-cardinality raw-unit metrics for synchronized tracking views.
+
 ## 0.22.2
 
-- Define the required Kubernetes condition fields in the NPA v1alpha2 CRD schema so the API server can safely install the dual-served eligibility contract.
+- Define the required Kubernetes condition fields in the NPA v1alpha2 CRD
+  schema so the API server can safely install the dual-served eligibility contract.
 
 ## 0.22.1
 
