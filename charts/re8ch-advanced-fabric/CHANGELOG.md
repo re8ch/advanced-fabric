@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.21.1
+
+- Use the FRR 10.x-compatible `show bgp neighbors json` command. The previous
+  AFI-qualified `brief` form returned successful plain text, causing `jq` to
+  reject the node status envelope before measurement publication.
+
 ## 0.21.0
 
 - Publish one `node-measurement-v1alpha1` ConfigMap per scheduled node with all

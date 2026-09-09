@@ -21,3 +21,9 @@ def test_controller_api_access_does_not_depend_on_accelerated_vip():
                 "charts/re8ch-advanced-fabric/templates/advanced-fabric-runtime.yaml").read_text()
     assert 'name: API_HOST' not in template
     assert '10.250.0.1' not in template
+
+
+def test_host_collector_uses_frr_compatible_neighbor_json_command():
+    script = (Path(__file__).parents[1] / "charts/re8ch-advanced-fabric/files/host-agent.sh").read_text()
+    assert "show bgp neighbors json" in script
+    assert "show bgp ipv4 unicast neighbors json brief" not in script
