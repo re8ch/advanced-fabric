@@ -21,7 +21,10 @@ publish_status() {
   fi
   frr_state=$(host systemctl is-active frr 2>/dev/null || true)
   bgp=$(host vtysh -c 'show bgp ipv4 unicast summary json' 2>/dev/null || printf '{}')
-  neighbors=$(host vtysh -c 'show bgp ipv4 unicast neighbors json brief' 2>/dev/null || printf '{}')
+  # FRR 10.x accepts the generic neighbor JSON command, while the AFI-qualified
+  # `... neighbors json brief` form prints an error as successful plain text.
+  # That text later makes jq reject the otherwise atomic status envelope.
+  neighbors=$(host vtysh -c 'show bgp neighbors json' 2>/dev/null || printf '{}')
   rib=$(host vtysh -c 'show bgp ipv4 unicast json' 2>/dev/null || printf '{}')
   bgp_rib=$(printf '%s' "$rib" | jq -c '[((.routes // {}) | to_entries[]) | {prefix:.key,paths:[.value[] | {
     peer:(.peerId // .peerHostname // .nexthops[0].hostname // "unknown"),
