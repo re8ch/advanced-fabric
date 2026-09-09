@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.22.2
+
+- Define the required Kubernetes condition fields in the NPA v1alpha2 CRD schema so the API server can safely install the dual-served eligibility contract.
+
 ## 0.22.1
 
 - Isolate NPA reachability from unrelated offline full-matrix targets while requiring one viable path on each fresh host and pod plane.
