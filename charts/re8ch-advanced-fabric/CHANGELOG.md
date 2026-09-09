@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.23.1
+
+- Read the canonical Envoy listener receive-byte counter from node-labelled
+  Gateway metric targets when building `b_rx` windows.
+
 ## 0.23.0
 
 - Upgrade the 31-symbol envelope to `v1alpha2` with validity, freshness,
