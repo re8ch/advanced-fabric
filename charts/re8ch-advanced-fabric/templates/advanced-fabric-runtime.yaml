@@ -56,6 +56,8 @@ data:
 {{ .Files.Get "files/status-publisher.py" | indent 4 }}
   conformance-probe.py: |
 {{ .Files.Get "files/conformance-probe.py" | indent 4 }}
+  node-measurement.py: |
+{{ .Files.Get "files/node-measurement.py" | indent 4 }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -69,7 +71,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/runtime: {{ printf "%s\n%s\n%s\n%s" (.Files.Get "files/controller.py") (.Files.Get "files/host-agent.sh") (.Files.Get "files/status-publisher.py") (.Files.Get "files/conformance-probe.py") | sha256sum | quote }}
+        checksum/runtime: {{ printf "%s\n%s\n%s\n%s\n%s" (.Files.Get "files/controller.py") (.Files.Get "files/host-agent.sh") (.Files.Get "files/status-publisher.py") (.Files.Get "files/conformance-probe.py") (.Files.Get "files/node-measurement.py") | sha256sum | quote }}
       labels: {app.kubernetes.io/name: re8ch-advanced-fabric-controller}
     spec:
       serviceAccountName: re8ch-advanced-fabric
@@ -100,7 +102,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/runtime: {{ printf "%s\n%s\n%s\n%s" (.Files.Get "files/controller.py") (.Files.Get "files/host-agent.sh") (.Files.Get "files/status-publisher.py") (.Files.Get "files/conformance-probe.py") | sha256sum | quote }}
+        checksum/runtime: {{ printf "%s\n%s\n%s\n%s\n%s" (.Files.Get "files/controller.py") (.Files.Get "files/host-agent.sh") (.Files.Get "files/status-publisher.py") (.Files.Get "files/conformance-probe.py") (.Files.Get "files/node-measurement.py") | sha256sum | quote }}
       labels: {app.kubernetes.io/name: re8ch-advanced-fabric-agent}
     spec:
       serviceAccountName: re8ch-advanced-fabric
@@ -126,6 +128,18 @@ spec:
           env: [{name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}]
           securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true}
           resources: {requests: {cpu: 5m, memory: 12Mi}, limits: {cpu: 50m, memory: 32Mi}}
+          volumeMounts:
+            - {name: runtime, mountPath: /runtime, readOnly: true}
+            - {name: status, mountPath: /status, readOnly: true}
+        - name: node-measurement
+          image: python:3.13-alpine@sha256:540c7d91f98ff6880174c40e99067bf5941eb54d818a7a5e094d188b196a934d
+          command: [python3, /runtime/node-measurement.py]
+          env:
+            - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
+            - {name: POD_NAMESPACE, valueFrom: {fieldRef: {fieldPath: metadata.namespace}}}
+            - {name: MEASUREMENT_INTERVAL_SECONDS, value: "15"}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true}
+          resources: {requests: {cpu: 5m, memory: 16Mi}, limits: {cpu: 50m, memory: 48Mi}}
           volumeMounts:
             - {name: runtime, mountPath: /runtime, readOnly: true}
             - {name: status, mountPath: /status, readOnly: true}

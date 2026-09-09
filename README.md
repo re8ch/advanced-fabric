@@ -116,6 +116,16 @@ These sources standardize observables and experimental procedure; none defines
 Advanced Fabric's O/S/I functions or validates an off-diagonal trade-off. The
 six latent quantities and every `tau_XY` remain hypotheses to identify.
 
+When `advancedFabric.enabled=true`, each node agent publishes
+`advanced-fabric-measurement-<node>` in `kube-system`. Its
+`measurement.json` uses `node-measurement-v1alpha1` and contains exactly one
+record for every catalog symbol. `envelopeComplete=true` means the schema is
+complete; it does **not** mean all evidence was observed. Consumers must inspect
+`coverage` and each record's state. `partial` includes the observed value and
+the evidence still required for the catalog meaning, while `not-observed`
+contains a reason and a null value. This distinction lets any scheduled node
+produce a comparable record without manufacturing experimental data.
+
 ### Six latent structural quantities
 
 The first model is deliberately limited to six quantities. They remain vectors,

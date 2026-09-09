@@ -2,8 +2,8 @@ apiVersion: v2
 name: re8ch-advanced-fabric
 description: RE8CH native-routing, FRR spine/leaf fabric, service VIPs, and network economics
 type: application
-version: 0.20.0
-appVersion: "0.20.0"
+version: 0.21.0
+appVersion: "0.21.0"
 kubeVersion: ">=1.30.0-0"
 home: https://github.com/re8ch/advanced-fabric
 sources:
@@ -21,6 +21,10 @@ annotations:
   artifacthub.io/operatorCapabilities: deep insights
   artifacthub.io/containsSecurityUpdates: "false"
   artifacthub.io/changes: |
+    - kind: added
+      description: Publish a complete 31-symbol per-node measurement envelope with observed, partial, and not-observed evidence states.
+    - kind: added
+      description: Collect Linux route, nexthop and interface snapshots plus richer FRR path attributes without fabricating experiment-only measurements.
     - kind: added
       description: Calculate Service O/S/I from timestamped incoming-traffic windows with explicit values, rates, confidence, and formula operands.
     - kind: added
