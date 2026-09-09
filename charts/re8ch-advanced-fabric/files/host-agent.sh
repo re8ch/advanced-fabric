@@ -32,6 +32,13 @@ publish_status() {
     metric:(.metric // null),localPreference:(.localPref // null),weight:(.weight // null),
     best:(if (.bestpath | type) == "object" then (.bestpath.overall == true) else (.bestpath == true) end),
     multipath:(.multipath == true)}]}]' 2>/dev/null || printf '[]')
+  next_hop_probes=$(printf '%s' "$bgp_rib" | jq -r '[.[].paths[].nextHops[]? | select(. != "unknown" and . != "0.0.0.0")] | unique[]' |
+    while IFS= read -r next_hop; do
+      route=$(host ip -j route get "$next_hop" 2>/dev/null | jq -c '.[0] // {}' || printf '{}')
+      if host ping -n -c 1 -W 1 "$next_hop" >/dev/null 2>&1; then reachable=true; else reachable=false; fi
+      jq -cn --arg address "$next_hop" --argjson route "$route" --argjson reachable "$reachable" \
+        '{address:$address,reachable:$reachable,routeDev:($route.dev // null),gateway:($route.gateway // null),source:($route.prefsrc // null)}'
+    done | jq -sc '.')
   bfd=$(host vtysh -c 'show bfd peers json' 2>/dev/null || printf '[]')
   routes=$(host ip -j route show table main 2>/dev/null || printf '[]')
   nexthops=$(host ip -j nexthop show 2>/dev/null || printf '[]')
@@ -65,12 +72,12 @@ publish_status() {
     --arg node "$NODE_NAME" --arg observedAt "$now" --arg datapath "$datapath" \
     --arg frr "$frr_state" --argjson tunnels "$tunnel_interfaces" \
     --argjson bgp "$bgp" --argjson neighbors "$neighbors" --argjson bfd "$bfd" --argjson ecmp "$ecmp" \
-    --argjson routes "$routes" --argjson nexthops "$nexthops" --argjson links "$links" \
+    --argjson routes "$routes" --argjson nexthops "$nexthops" --argjson links "$links" --argjson nextHopProbes "$next_hop_probes" \
     --argjson bgpRib "$bgp_rib" --argjson peers "$peer_routes" --argjson rankings "$rankings" \
     --argjson controlPlaneApi "$api_config" --argjson controlPlaneApiHealthy "$api_healthy" --argjson dynamics "$dynamics" \
     '{schemaVersion:"networking.re8ch.com/v1alpha1",node:$node,observedAt:$observedAt,
       datapath:{mode:$datapath,tunnelInterfaces:$tunnels},frr:{state:$frr,bgp:$bgp,neighbors:$neighbors,bfd:$bfd},
-      routes:$routes,nexthops:$nexthops,links:$links,ecmpRoutes:$ecmp,bgpRib:$bgpRib,peerRoutes:$peers,pathRankings:$rankings,
+      routes:$routes,nexthops:$nexthops,links:$links,nextHopProbes:$nextHopProbes,ecmpRoutes:$ecmp,bgpRib:$bgpRib,peerRoutes:$peers,pathRankings:$rankings,
       controlPlaneApi:($controlPlaneApi + {localHealthy:$controlPlaneApiHealthy}),routeDynamics:$dynamics}')
   printf '%s\n' "$status" >"${STATUS_FILE}.tmp"
   mv "${STATUS_FILE}.tmp" "${STATUS_FILE}"

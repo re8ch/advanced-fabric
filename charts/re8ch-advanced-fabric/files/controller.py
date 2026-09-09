@@ -557,21 +557,33 @@ def path_evidence_document(node, node_ready, status, measurements, validity_seco
     return document, result
 
 
-def structural_observations(nodes, measurement_maps):
+def structural_observations(nodes, measurement_maps, previous=None, history_limit=96):
     output = {}
+    previous_nodes = (previous or {}).get("nodes", {})
     for node in nodes:
         payload = measurement_maps.get(node["name"], {})
         records = {item.get("symbol"): item for item in payload.get("measurements", [])}
         latent = {}
         for name, required in LATENT_REQUIREMENTS.items():
-            available = [symbol for symbol in required if symbol in records and records[symbol].get("state") != "not-observed"]
+            available = [symbol for symbol in required if symbol in records and records[symbol].get("state") == "observed"]
+            components = {symbol: records[symbol].get("value") for symbol in available}
             latent[name] = {"state": "Observed" if len(available) == len(required) else "Partial" if available else "NotObserved",
                             "requiredSymbols": list(required), "availableSymbols": available,
                             "missingSymbols": [symbol for symbol in required if symbol not in available],
-                            "value": None, "reason": "latent mapping is not identified"}
+                            "value": components if len(available) == len(required) else None,
+                            "reason": "observation-derived component vector; no scalar mapping"}
+        point = {"observedAt": payload.get("observedAt"), "trackingReady": bool(payload.get("trackingReady")),
+                 "values": payload.get("trackingValues", {})}
+        history = list(previous_nodes.get(node["name"], {}).get("history", []))
+        if point["observedAt"] and (not history or history[-1].get("observedAt") != point["observedAt"]):
+            history.append(point)
         output[node["name"]] = {"observedAt": payload.get("observedAt"), "latent": latent,
+                                "trackingReady": bool(payload.get("trackingReady")),
+                                "trackingGate": payload.get("trackingGate", {}),
+                                "latestEpisode": payload.get("latestEpisode"), "history": history[-history_limit:],
                                 "measurementRef": "advanced-fabric-measurement-" + node["name"].lower().replace("_", "-").replace(".", "-")}
-    return {"schemaVersion": "networking.re8ch.com/structural-observation-v1alpha1", "nodes": output}
+    return {"schemaVersion": "networking.re8ch.com/structural-observation-v1alpha2",
+            "compatibleSchemaVersions": ["networking.re8ch.com/structural-observation-v1alpha1"], "nodes": output}
 
 
 def discovered_interventions(fabric, statuses, previous, now_text):
@@ -860,10 +872,15 @@ def reconcile():
             if payload.get("node") in node_index: parsed_measurements[payload["node"]] = payload
         except (TypeError, ValueError, json.JSONDecodeError):
             continue
+    try:
+        structural_object = request("GET", "/api/v1/namespaces/kube-system/configmaps/advanced-fabric-structural-observations")
+        previous_structural = json.loads(structural_object.get("data", {}).get("observations.json", "{}"))
+    except (urllib.error.HTTPError, TypeError, ValueError, json.JSONDecodeError):
+        previous_structural = {}
     upsert_configmap("advanced-fabric-structural-observations",
                      {"app.kubernetes.io/name": "re8ch-advanced-fabric",
                       "app.kubernetes.io/component": "structural-observation"},
-                     structural_observations(active_nodes, parsed_measurements), "observations.json")
+                     structural_observations(active_nodes, parsed_measurements, previous_structural), "observations.json")
     upsert_configmap("advanced-fabric-measurement-model",
                      {"app.kubernetes.io/name": "re8ch-advanced-fabric",
                       "app.kubernetes.io/component": "measurement-model"},

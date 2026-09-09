@@ -11,16 +11,19 @@ rules:
     resources: [nodes, pods, services]
     verbs: [get, list, watch]
   - apiGroups: [""]
+    resources: [services/proxy]
+    verbs: [get]
+  - apiGroups: [""]
     resources: [configmaps]
     verbs: [get, list, create, patch, update]
   - apiGroups: [networking.re8ch.com]
     resources: [advancedfabrics, trafficpolicies]
     verbs: [get, list, watch]
   - apiGroups: [networking.re8ch.com]
-    resources: [networkpathassessments, networkinterventions, networktradeoffestimates, tradeofftriangles]
+    resources: [networkpathassessments, networkinterventions, networkobservationepisodes, networktradeoffestimates, tradeofftriangles]
     verbs: [get, list, watch, create, patch, update, delete]
   - apiGroups: [networking.re8ch.com]
-    resources: [advancedfabrics/status, trafficpolicies/status, networkpathassessments/status, networkinterventions/status, tradeofftriangles/status]
+    resources: [advancedfabrics/status, trafficpolicies/status, networkpathassessments/status, networkinterventions/status, networkobservationepisodes/status, tradeofftriangles/status]
     verbs: [get, patch, update]
 {{- if .Values.advancedFabric.virtualIngress.enabled }}
   - apiGroups: [networking.k8s.io]
@@ -138,6 +141,8 @@ spec:
             - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
             - {name: POD_NAMESPACE, valueFrom: {fieldRef: {fieldPath: metadata.namespace}}}
             - {name: MEASUREMENT_INTERVAL_SECONDS, value: "15"}
+            - {name: MEASUREMENT_FRESHNESS_SECONDS, value: {{ .Values.advancedFabric.networkQuality.freshnessSeconds | quote }} }
+            - {name: MEASUREMENT_HORIZON_SECONDS, value: "7776000"}
 {{- if .Values.advancedFabric.networkQuality.enabled }}
             - {name: TEXTFILE_DIR, value: /metrics}
 {{- end }}
@@ -145,7 +150,7 @@ spec:
           resources: {requests: {cpu: 5m, memory: 16Mi}, limits: {cpu: 50m, memory: 48Mi}}
           volumeMounts:
             - {name: runtime, mountPath: /runtime, readOnly: true}
-            - {name: status, mountPath: /status, readOnly: true}
+            - {name: status, mountPath: /status}
 {{- if .Values.advancedFabric.networkQuality.enabled }}
             - {name: network-quality-metrics, mountPath: /metrics}
 {{- end }}
