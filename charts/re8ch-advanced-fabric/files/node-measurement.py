@@ -188,7 +188,8 @@ def directional_prefix_counts(neighbors, direction):
 
 
 def observed(value, source, observed_at, scope=None, note=None):
-    result = {"state": "observed", "value": value, "source": source, "observedAt": observed_at}
+    result = {"state": "observed", "observationStatus": "measured", "value": value,
+              "source": source, "observedAt": observed_at}
     if scope:
         result["scope"] = scope
     if note:
@@ -197,12 +198,21 @@ def observed(value, source, observed_at, scope=None, note=None):
 
 
 def partial(value, source, observed_at, reason):
-    return {"state": "partial", "value": value, "source": source, "observedAt": observed_at,
-            "missingEvidence": reason}
+    return {"state": "partial", "observationStatus": "incomplete", "value": value,
+            "source": source, "observedAt": observed_at, "missingEvidence": reason}
 
 
 def unavailable(reason):
-    return {"state": "not-observed", "value": None, "missingEvidence": reason}
+    return {"state": "not-observed", "observationStatus": "unavailable", "value": None,
+            "missingEvidence": reason}
+
+
+def right_censored(source, observed_at, window_started_at, reason):
+    """Represent a valid event-conditioned observation without fabricating a duration."""
+    return {"state": "observed", "observationStatus": "right-censored", "value": None,
+            "source": source, "observedAt": observed_at, "note": reason,
+            "censoring": {"kind": "right", "windowStartedAt": window_started_at,
+                          "windowEndedAt": observed_at, "eventObserved": False}}
 
 
 TRACKING_UNITS = {
@@ -282,6 +292,9 @@ def build_snapshot(status, probes, now=None, state=None, service_traffic=None):
     duration = max(1.0, now - datetime.datetime.fromisoformat(
         str(dynamics.get("startedAt", now_text)).replace("Z", "+00:00")).timestamp())
     state = advance_episode(dict(state or {}), status, probes, now)
+    state.setdefault("observationStartedEpoch", now)
+    observation_started_at = datetime.datetime.fromtimestamp(
+        state["observationStartedEpoch"], datetime.timezone.utc).isoformat().replace("+00:00", "Z")
     counters = counter_totals(neighbors)
     previous_counters = state.get("previousCounters")
     counter_epoch = dynamics.get("startedAt")
@@ -303,6 +316,11 @@ def build_snapshot(status, probes, now=None, state=None, service_traffic=None):
     next_hop_probes = {item.get("address"): item for item in status.get("nextHopProbes", [])}
     verified_next_hops = [hop for hop in candidate_next_hops if next_hop_probes.get(hop, {}).get("reachable") is True and
                           next_hop_probes.get(hop, {}).get("routeDev")]
+    next_hop_observation_complete = (
+        (not candidate_next_hops and status.get("frr", {}).get("state") == "active" and "bgpRib" in status) or
+        (bool(candidate_next_hops) and all(
+            hop in next_hop_probes and isinstance(next_hop_probes[hop].get("reachable"), bool)
+            for hop in candidate_next_hops)))
     values = {
         "x_nh": observed([{"prefix": route.get("prefix"), "nextHops": path.get("nextHops", [])}
                           for route in rib for path in route.get("paths", []) if path.get("best")], "FRR BGP RIB", observed_at),
@@ -329,8 +347,11 @@ def build_snapshot(status, probes, now=None, state=None, service_traffic=None):
         "w_bgp": observed({"windowWithdrawals": deltas["withdrawals"], "counterReset": counter_reset}, "FRR withdrawal counter deltas", observed_at) if counters["supported"] and not counter_reset else unavailable("FRR withdrawal counters unavailable or reset in current window"),
         "lambda_flap": observed(event_count / duration, "retained RIB/FIB fingerprint transitions", observed_at),
         "delta_ribfib": observed({"bgpChanges": dynamics.get("bgpChanges", 0), "routeChanges": dynamics.get("routeChanges", 0), "fingerprint": fingerprint(status)}, "retained FRR and Linux state-set fingerprints", observed_at),
-        "n_nh": observed(len(verified_next_hops), "FRR candidates joined to bound route and active reachability probes", observed_at)
-                if candidate_next_hops and len(verified_next_hops) == len(candidate_next_hops) else unavailable("not all candidate next-hops have same-window bound reachability evidence"),
+        "n_nh": observed(len(verified_next_hops), "FRR candidates joined to bound route and active reachability probes",
+                         observed_at, scope={"candidateCount": len(candidate_next_hops),
+                         "probeResults": [next_hop_probes.get(hop) for hop in candidate_next_hops]},
+                         note="unreachable candidates are valid measured outcomes, not missing evidence")
+                if next_hop_observation_complete else unavailable("not all candidate next-hops have same-window reachability attempts"),
         "n_if": observed(route_interfaces, "Linux FIB and link inventory", observed_at),
         "n_tun": observed(status.get("datapath", {}).get("tunnelInterfaces", []), "effective Cilium mode and Linux links", observed_at),
         "n_gw": observed(gateway_ids, "FRR next-hop and live route inventory", observed_at) if gateway_ids else unavailable("no resolvable live gateway identities"),
@@ -347,8 +368,9 @@ def build_snapshot(status, probes, now=None, state=None, service_traffic=None):
     for symbol, field in episode_values.items():
         values[symbol] = observed(episode[field], "completed natural observation episode",
                                   episode["endedAt"], scope={"episodeStartedAt": episode["startedAt"]}) \
-            if episode and now - episode.get("endedEpoch", 0) <= HORIZON_SECONDS else unavailable(
-                "requires a completed natural observation episode within the 90-day horizon")
+            if episode and now - episode.get("endedEpoch", 0) <= HORIZON_SECONDS else right_censored(
+                "natural observation episode detector", now_text, observation_started_at,
+                "no completed natural episode in the retained observation window; duration is not assigned")
     records = []
     source_epoch = dynamics.get("startedAt")
     for symbol in SYMBOLS:
@@ -356,6 +378,9 @@ def build_snapshot(status, probes, now=None, state=None, service_traffic=None):
         record["sourceEpoch"] = source_epoch
         record["evidenceRefs"] = [record["source"]] if record.get("source") else []
         record["historyCoverage"] = {"horizonSeconds": HORIZON_SECONDS,
+                                     "observedWindowSeconds": min(HORIZON_SECONDS, max(
+                                         0.0, now - state["observationStartedEpoch"])),
+                                     "observationStartedAt": observation_started_at,
                                      "episodeEligible": symbol in EPISODE_ONLY}
         sample_time = record.get("observedAt")
         age = None
@@ -369,7 +394,10 @@ def build_snapshot(status, probes, now=None, state=None, service_traffic=None):
         if record["state"] == "observed" and not fresh:
             record.update({"state": "partial", "missingEvidence": "latest valid sample is outside its freshness limit"})
         record["validity"] = {"valid": record["state"] == "observed",
-                              "condition": "catalog validity conditions satisfied" if record["state"] == "observed" else record.get("missingEvidence")}
+                              "condition": ("event-conditioned channel valid; value is right-censored"
+                                  if record.get("observationStatus") == "right-censored" else
+                                  "catalog validity conditions satisfied") if record["state"] == "observed"
+                                  else record.get("missingEvidence")}
         records.append(record)
     tracking_values = {}
     for record in records:
@@ -380,7 +408,7 @@ def build_snapshot(status, probes, now=None, state=None, service_traffic=None):
             tracking_values[record["symbol"]] = {"value": scalar, "unit": TRACKING_UNITS[record["symbol"]]}
     counts = {state: sum(item["state"] == state for item in records) for state in ("observed", "partial", "not-observed")}
     missing = [item["symbol"] for item in records if item["state"] != "observed"]
-    return {"schemaVersion": "networking.re8ch.com/node-measurement-v1alpha2", "compatibleSchemaVersions": ["networking.re8ch.com/node-measurement-v1alpha1"], "catalogRef": "advanced-fabric-osi-identification",
+    return {"schemaVersion": "networking.re8ch.com/node-measurement-v1alpha3", "compatibleSchemaVersions": ["networking.re8ch.com/node-measurement-v1alpha2", "networking.re8ch.com/node-measurement-v1alpha1"], "catalogRef": "advanced-fabric-osi-identification",
             "node": NODE, "observedAt": observed_at or now_text, "generatedAt": now_text,
             "envelopeComplete": len(records) == len(SYMBOLS), "coverage": {"total": len(SYMBOLS), **counts},
             "trackingReady": not missing, "trackingGate": {"required": len(SYMBOLS), "observed": len(SYMBOLS) - len(missing),

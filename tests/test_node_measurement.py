@@ -9,7 +9,7 @@ SOURCE = ROOT / "charts/re8ch-advanced-fabric/files/node-measurement.py"
 
 def load_builder():
     tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
-    names = {"flatten_objects", "observed", "partial", "unavailable", "fingerprint", "path_fingerprint", "probe_loss",
+    names = {"flatten_objects", "observed", "partial", "unavailable", "right_censored", "fingerprint", "path_fingerprint", "probe_loss",
              "advance_episode", "counter_totals", "directional_prefix_counts", "tracking_value", "build_snapshot"}
     selected = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names]
     namespace = {
@@ -33,7 +33,7 @@ def load_builder():
     return namespace["build_snapshot"]
 
 
-def test_complete_envelope_blocks_tracking_without_service_and_episode_evidence():
+def test_complete_envelope_right_censors_quiet_episode_measurements():
     build = load_builder()
     status = {
         "observedAt": "2026-09-09T00:00:00Z",
@@ -56,11 +56,105 @@ def test_complete_envelope_blocks_tracking_without_service_and_episode_evidence(
     assert len(records) == 31
     assert records["a_reach"]["value"] == {"attempts": 3, "successes": 3}
     assert records["x_nh"]["value"][0]["nextHops"] == ["192.0.2.1"]
-    assert records["t_conv"]["state"] == "not-observed"
+    assert records["t_conv"]["state"] == "observed"
+    assert records["t_conv"]["observationStatus"] == "right-censored"
     assert records["t_conv"]["value"] is None
+    assert records["t_conv"]["censoring"]["eventObserved"] is False
     assert records["b_rx"]["state"] == "not-observed"
     assert result["trackingReady"] is False
-    assert {"b_rx", "t_conv", "t_persist", "t_recover"}.issubset(result["trackingGate"]["missingSymbols"])
+    assert {"t_conv", "t_persist", "t_recover"}.isdisjoint(result["trackingGate"]["missingSymbols"])
+    assert "b_rx" in result["trackingGate"]["missingSymbols"]
+
+
+def test_unreachable_next_hops_are_observed_zero_when_every_probe_ran():
+    build = load_builder()
+    now = datetime.datetime(2026, 9, 9, tzinfo=datetime.timezone.utc).timestamp()
+    status = {
+        "observedAt": "2026-09-09T00:00:00Z",
+        "datapath": {"mode": "native"},
+        "frr": {"state": "active", "neighbors": {}, "bgp": {}},
+        "routes": [],
+        "bgpRib": [{"prefix": "192.0.2.0/24", "paths": [
+            {"best": True, "nextHops": ["192.0.2.1", "192.0.2.2"]}
+        ]}],
+        "nextHopProbes": [
+            {"address": "192.0.2.1", "reachable": False, "routeDev": "eth0"},
+            {"address": "192.0.2.2", "reachable": False, "routeDev": None},
+        ],
+        "peerRoutes": [],
+        "routeDynamics": {"startedAt": "2026-09-08T23:59:00Z"},
+    }
+    result = build(status, [], now)
+    record = {item["symbol"]: item for item in result["measurements"]}["n_nh"]
+    assert record["state"] == "observed"
+    assert record["value"] == 0
+    assert record["scope"]["candidateCount"] == 2
+
+
+def test_missing_next_hop_probe_attempt_still_blocks_validity():
+    build = load_builder()
+    now = datetime.datetime(2026, 9, 9, tzinfo=datetime.timezone.utc).timestamp()
+    status = {
+        "observedAt": "2026-09-09T00:00:00Z",
+        "datapath": {"mode": "native"},
+        "frr": {"state": "active", "neighbors": {}, "bgp": {}},
+        "routes": [],
+        "bgpRib": [{"prefix": "192.0.2.0/24", "paths": [
+            {"best": True, "nextHops": ["192.0.2.1", "192.0.2.2"]}
+        ]}],
+        "nextHopProbes": [{"address": "192.0.2.1", "reachable": False, "routeDev": "eth0"}],
+        "peerRoutes": [],
+        "routeDynamics": {"startedAt": "2026-09-08T23:59:00Z"},
+    }
+    record = {item["symbol"]: item for item in build(status, [], now)["measurements"]}["n_nh"]
+    assert record["state"] == "not-observed"
+
+
+def test_quiet_but_fully_instrumented_node_closes_tracking_gate():
+    build = load_builder()
+    now = datetime.datetime(2026, 9, 9, tzinfo=datetime.timezone.utc).timestamp()
+    status = {
+        "observedAt": "2026-09-09T00:00:00Z",
+        "datapath": {"mode": "native", "tunnelInterfaces": []},
+        "frr": {
+            "state": "active",
+            "bgp": {"peers": {"p": {"state": "Established"}}},
+            "neighbors": {"p": {
+                "messageStats": {"updatesSent": 12, "updatesRecv": 3},
+                "prefixStats": {"pfxSnt": 4, "pfxRcd": 5, "withdrawn": 2},
+            }},
+        },
+        "routes": [{"dst": "default", "dev": "eth0"}],
+        "bgpRib": [{"prefix": "192.0.2.0/24", "paths": [{
+            "best": True, "nextHops": ["192.0.2.1"], "asPath": "64512",
+        }]}],
+        "nextHopProbes": [{"address": "192.0.2.1", "reachable": False, "routeDev": "eth0"}],
+        "peerRoutes": [{"name": "p", "asn": 64512, "provider": "test", "failureDomain": "fd-a"}],
+        "ecmpRoutes": [],
+        "routeDynamics": {"startedAt": "2026-09-08T23:59:00Z", "bgpChanges": 0, "routeChanges": 0},
+    }
+    probe = {
+        "observedAt": "2026-09-09T00:00:00Z",
+        "paths": [{"sourcePlane": "host", "targetNode": "node-b", "targetPlane": "host",
+                   "pathRole": "alternative", "feasible": True, "attempts": 2, "successes": 2,
+                   "lossRatio": 0, "p50Ms": 1, "p95Ms": 2}],
+        "history": {"lossStdDev": 0, "p95StdDevMs": 0.1, "windowSeconds": 60},
+    }
+    collector_state = {
+        "counterEpoch": "2026-09-08T23:59:00Z",
+        "previousCounters": {"updates": 15, "withdrawals": 2},
+        "observationStartedEpoch": now - 3600,
+    }
+    traffic = [{"observedAt": "2026-09-09T00:00:00Z", "receivedBytes": 0,
+                "receivedPackets": 0, "requests": 0}]
+    result = build(status, [probe], now, state=collector_state, service_traffic=traffic)
+    records = {item["symbol"]: item for item in result["measurements"]}
+    assert result["trackingReady"] is True
+    assert result["trackingGate"]["missingSymbols"] == []
+    assert result["trackingGate"]["observed"] == 31
+    assert records["n_nh"]["value"] == 0
+    assert records["t_conv"]["observationStatus"] == "right-censored"
+    assert "t_conv" not in result["trackingValues"]
 
 
 def test_counter_reset_never_becomes_observed_delta():
