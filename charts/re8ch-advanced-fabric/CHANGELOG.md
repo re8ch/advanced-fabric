@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.21.0
+
+- Publish one `node-measurement-v1alpha1` ConfigMap per scheduled node with all
+  31 catalog symbols and explicit `observed`, `partial`, or `not-observed`
+  evidence state.
+- Combine Linux FIB/nexthop/interface state, FRR neighbor/RIB state and host/pod
+  conformance results into a common timestamped node envelope.
+- Report coverage and missing-evidence reasons; disturbance-only measurements
+  remain absent until a pre-registered experiment supplies them.
+
 ## 0.20.0
 
 - Register `service-traffic-v1`, a provider-neutral input contract for traffic

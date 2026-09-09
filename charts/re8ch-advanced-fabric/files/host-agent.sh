@@ -21,14 +21,18 @@ publish_status() {
   fi
   frr_state=$(host systemctl is-active frr 2>/dev/null || true)
   bgp=$(host vtysh -c 'show bgp ipv4 unicast summary json' 2>/dev/null || printf '{}')
+  neighbors=$(host vtysh -c 'show bgp ipv4 unicast neighbors json brief' 2>/dev/null || printf '{}')
   rib=$(host vtysh -c 'show bgp ipv4 unicast json' 2>/dev/null || printf '{}')
   bgp_rib=$(printf '%s' "$rib" | jq -c '[((.routes // {}) | to_entries[]) | {prefix:.key,paths:[.value[] | {
     peer:(.peerId // .peerHostname // .nexthops[0].hostname // "unknown"),
     nextHops:[.nexthops[]? | (.ip // .hostname // "unknown")],asPath:(.path // ""),
+    metric:(.metric // null),localPreference:(.localPref // null),weight:(.weight // null),
     best:(if (.bestpath | type) == "object" then (.bestpath.overall == true) else (.bestpath == true) end),
     multipath:(.multipath == true)}]}]' 2>/dev/null || printf '[]')
   bfd=$(host vtysh -c 'show bfd peers json' 2>/dev/null || printf '[]')
   routes=$(host ip -j route show table main 2>/dev/null || printf '[]')
+  nexthops=$(host ip -j nexthop show 2>/dev/null || printf '[]')
+  links=$(host ip -j -s link show 2>/dev/null || printf '[]')
   ecmp=$(printf '%s' "$routes" | jq -c '[.[] | select(((.nexthops // []) | length) > 1) | {dst: (.dst // "default"), protocol, metric, nexthops: [.nexthops[] | {gateway, dev, weight}]}]' 2>/dev/null || printf '[]')
   peers=$(jq -c '.peers // []' "${NODE_FILE}")
   peer_routes=$(printf '%s' "$peers" | jq -c '[.[] | {name, internalIP, acceleratedIP, podCIDR,
@@ -57,12 +61,13 @@ publish_status() {
   status=$(jq -cn \
     --arg node "$NODE_NAME" --arg observedAt "$now" --arg datapath "$datapath" \
     --arg frr "$frr_state" --argjson tunnels "$tunnel_interfaces" \
-    --argjson bgp "$bgp" --argjson bfd "$bfd" --argjson ecmp "$ecmp" \
+    --argjson bgp "$bgp" --argjson neighbors "$neighbors" --argjson bfd "$bfd" --argjson ecmp "$ecmp" \
+    --argjson routes "$routes" --argjson nexthops "$nexthops" --argjson links "$links" \
     --argjson bgpRib "$bgp_rib" --argjson peers "$peer_routes" --argjson rankings "$rankings" \
     --argjson controlPlaneApi "$api_config" --argjson controlPlaneApiHealthy "$api_healthy" --argjson dynamics "$dynamics" \
     '{schemaVersion:"networking.re8ch.com/v1alpha1",node:$node,observedAt:$observedAt,
-      datapath:{mode:$datapath,tunnelInterfaces:$tunnels},frr:{state:$frr,bgp:$bgp,bfd:$bfd},
-      ecmpRoutes:$ecmp,bgpRib:$bgpRib,peerRoutes:$peers,pathRankings:$rankings,
+      datapath:{mode:$datapath,tunnelInterfaces:$tunnels},frr:{state:$frr,bgp:$bgp,neighbors:$neighbors,bfd:$bfd},
+      routes:$routes,nexthops:$nexthops,links:$links,ecmpRoutes:$ecmp,bgpRib:$bgpRib,peerRoutes:$peers,pathRankings:$rankings,
       controlPlaneApi:($controlPlaneApi + {localHealthy:$controlPlaneApiHealthy}),routeDynamics:$dynamics}')
   printf '%s\n' "$status" >"${STATUS_FILE}.tmp"
   mv "${STATUS_FILE}.tmp" "${STATUS_FILE}"
