@@ -159,6 +159,11 @@ metadata:
   annotations: {"helm.sh/hook": test, "helm.sh/hook-delete-policy": "before-hook-creation,hook-succeeded"}
 spec:
   restartPolicy: Never
+{{- with .Values.advancedFabric.dns.testNodeSelector }}
+  nodeSelector:
+{{ toYaml . | indent 4 }}
+{{- end }}
+  tolerations: [{operator: Exists}]
   containers:
     - name: probe
       image: {{ .Values.advancedFabric.dns.image }}
