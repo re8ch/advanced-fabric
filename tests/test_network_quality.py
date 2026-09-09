@@ -62,6 +62,16 @@ class NetworkQualityTest(unittest.TestCase):
         self.assertIsNone(status["pathEvidence"]["reachable"])
         self.assertEqual(status["conditions"][0]["status"], "False")
 
+    def test_offline_matrix_target_does_not_reject_other_viable_paths(self):
+        now = 1_800_000_000
+        observed = datetime.datetime.fromtimestamp(now, datetime.timezone.utc).isoformat()
+        measurements = {( "node-a", plane): {"sourcePlane": plane, "fresh": True, "observedAt": observed,
+            "paths": [{"targetNode": "offline", "lossRatio": 1}, {"targetNode": "ready", "lossRatio": 0}]}
+            for plane in ("host", "pod")}
+        _, status = controller["path_evidence_document"]({"name": "node-a"}, True, {}, measurements, 120, now)
+        self.assertEqual(status["state"], "Ready")
+        self.assertTrue(status["pathEvidence"]["reachable"])
+
     def test_discovered_change_remains_pending_windows(self):
         fingerprints, events = controller["discovered_interventions"](
             {"metadata": {"generation": 2}}, {}, {"advancedfabric/re8ch": "1"}, "2027-01-15T08:00:00Z")
