@@ -17,10 +17,10 @@ rules:
     resources: [advancedfabrics, trafficpolicies]
     verbs: [get, list, watch]
   - apiGroups: [networking.re8ch.com]
-    resources: [networkpathassessments]
+    resources: [networkpathassessments, networkinterventions, networktradeoffestimates, tradeofftriangles]
     verbs: [get, list, watch, create, patch, update, delete]
   - apiGroups: [networking.re8ch.com]
-    resources: [advancedfabrics/status, trafficpolicies/status, networkpathassessments/status]
+    resources: [advancedfabrics/status, trafficpolicies/status, networkpathassessments/status, networkinterventions/status, tradeofftriangles/status]
     verbs: [get, patch, update]
 {{- if .Values.advancedFabric.virtualIngress.enabled }}
   - apiGroups: [networking.k8s.io]
@@ -138,11 +138,17 @@ spec:
             - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
             - {name: POD_NAMESPACE, valueFrom: {fieldRef: {fieldPath: metadata.namespace}}}
             - {name: MEASUREMENT_INTERVAL_SECONDS, value: "15"}
+{{- if .Values.advancedFabric.networkQuality.enabled }}
+            - {name: TEXTFILE_DIR, value: /metrics}
+{{- end }}
           securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true}
           resources: {requests: {cpu: 5m, memory: 16Mi}, limits: {cpu: 50m, memory: 48Mi}}
           volumeMounts:
             - {name: runtime, mountPath: /runtime, readOnly: true}
             - {name: status, mountPath: /status, readOnly: true}
+{{- if .Values.advancedFabric.networkQuality.enabled }}
+            - {name: network-quality-metrics, mountPath: /metrics}
+{{- end }}
 {{- if .Values.advancedFabric.networkQuality.enabled }}
         - name: host-conformance
           image: python:3.13-alpine@sha256:540c7d91f98ff6880174c40e99067bf5941eb54d818a7a5e094d188b196a934d

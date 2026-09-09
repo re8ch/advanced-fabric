@@ -12,6 +12,7 @@ import urllib.request
 NODE = os.environ["NODE_NAME"]
 NAMESPACE = os.environ.get("POD_NAMESPACE", "kube-system")
 INTERVAL = int(os.environ.get("MEASUREMENT_INTERVAL_SECONDS", "15"))
+METRICS_DIR = os.environ.get("TEXTFILE_DIR", "")
 BASE = "https://%s:%s" % (os.environ["KUBERNETES_SERVICE_HOST"], os.environ["KUBERNETES_SERVICE_PORT_HTTPS"])
 TOKEN = open("/var/run/secrets/kubernetes.io/serviceaccount/token", encoding="utf-8").read().strip()
 CONTEXT = ssl.create_default_context(cafile="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
@@ -155,11 +156,68 @@ def publish(snapshot):
         api("POST", "/api/v1/namespaces/%s/configmaps" % NAMESPACE, obj)
 
 
+def prometheus_escape(value):
+    return str(value).replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+def publish_metrics(snapshot):
+    """Export only observed numeric facts; missing measurements have no value sample."""
+    if not METRICS_DIR:
+        return
+    records = {item["symbol"]: item for item in snapshot["measurements"]}
+    epoch = next((item.get("value", {}).get("collectorStartedAt") for item in snapshot["measurements"]
+                  if item["symbol"] == "t_state" and isinstance(item.get("value"), dict)), None) or "unknown"
+    base = 'node="%s",plane="node",collector_epoch="%s",definition="%s"' % (
+        prometheus_escape(NODE), prometheus_escape(epoch), prometheus_escape(snapshot["schemaVersion"]))
+    lines = ["# HELP advanced_fabric_measurement_state Evidence state (1 for the current state).",
+             "# TYPE advanced_fabric_measurement_state gauge"]
+    for symbol, item in records.items():
+        lines.append('advanced_fabric_measurement_state{%s,symbol="%s",state="%s"} 1' %
+                     (base, symbol, item["state"]))
+    values = {}
+    for symbol in ("n_path_change", "lambda_flap", "n_nh", "n_alt", "f_switch"):
+        item = records[symbol]
+        if item["state"] != "not-observed" and isinstance(item.get("value"), (int, float)):
+            values[symbol] = item["value"]
+    mappings = {
+        "w_ecmp": lambda v: max([int(x.get("width") or 0) for x in v] or [0]),
+        "m_route": lambda v: max([int(x.get("paths") or 0) for x in v] or [0]),
+        "n_if": lambda v: len(v), "n_tun": lambda v: len(v), "n_gw": lambda v: len(v),
+        "n_asn": lambda v: len(v),
+    }
+    for symbol, convert in mappings.items():
+        item = records[symbol]
+        if item["state"] != "not-observed" and isinstance(item.get("value"), list):
+            values[symbol] = convert(item["value"])
+    lines.extend(["# HELP advanced_fabric_observable Current raw network observable.",
+                  "# TYPE advanced_fabric_observable gauge"])
+    for symbol, value in values.items():
+        lines.append('advanced_fabric_observable{%s,symbol="%s"} %s' % (base, symbol, value))
+    requirements = {"Q": ("a_reach", "l_path", "t_rtt"), "K": ("t_state", "t_conv", "t_recover", "delta_ribfib"),
+                    "H": ("p_route", "x_nh", "t_persist", "f_switch", "a_osc"),
+                    "C": ("u_bgp", "w_bgp", "lambda_flap", "delta_ribfib", "n_path_change"),
+                    "R": ("w_ecmp", "m_route", "n_peer", "n_nh", "n_if", "n_alt"),
+                    "D": ("n_tun", "n_gw", "n_asn", "g_dep", "n_alt")}
+    lines.extend(["# HELP advanced_fabric_structural_evidence_coverage Fraction of required observables currently observed or partial.",
+                  "# TYPE advanced_fabric_structural_evidence_coverage gauge"])
+    for latent, required in requirements.items():
+        present = sum(records[symbol]["state"] != "not-observed" for symbol in required)
+        lines.append('advanced_fabric_structural_evidence_coverage{%s,latent="%s"} %.6f' %
+                     (base, latent, present / len(required)))
+    temporary = os.path.join(METRICS_DIR, ".advanced_fabric_measurement.prom.tmp")
+    target = os.path.join(METRICS_DIR, "advanced_fabric_measurement.prom")
+    with open(temporary, "w", encoding="utf-8") as stream:
+        stream.write("\n".join(lines) + "\n")
+    os.replace(temporary, target)
+
+
 while True:
     try:
         with open("/status/status.json", encoding="utf-8") as stream:
             current_status = json.load(stream)
-        publish(build_snapshot(current_status, [read_probe("host"), read_probe("pod")]))
+        snapshot = build_snapshot(current_status, [read_probe("host"), read_probe("pod")])
+        publish(snapshot)
+        publish_metrics(snapshot)
     except Exception as error:
         print(json.dumps({"event": "node-measurement-publish-error", "node": NODE, "error": str(error)}), flush=True)
     time.sleep(INTERVAL)

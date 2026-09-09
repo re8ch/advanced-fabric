@@ -8,6 +8,11 @@ economics.
 
 ## Theory-first O/S/I research model
 
+The implementation architecture and triangle closure rules are normative in
+[`docs/tradeoff-observatory.md`](docs/tradeoff-observatory.md). The default UI
+and controller are a Trade-off Observatory; legacy O/S/I score output is a
+deprecated compatibility surface and must not drive routing decisions.
+
 Advanced Fabric treats O (optimality), S (stability), and I (independence) as
 latent outcomes to be identified, not dashboard numbers to be designed. The
 target trade-off matrix is

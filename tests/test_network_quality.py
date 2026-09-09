@@ -21,11 +21,16 @@ controller = load_functions(ROOT / "charts/re8ch-advanced-fabric/files/controlle
                             {"parse_time", "condition", "network_quality", "cluster_inventory", "stale_desired_nodes",
                              "measurement_index", "evidence_plan", "node_inferences", "osi_snapshot",
                              "append_osi_history", "assessment_document", "service_traffic_index",
-                             "service_osi_snapshot", "service_assessment_document"},
+                             "service_osi_snapshot", "service_assessment_document", "path_evidence_document",
+                             "discovered_interventions", "triangle_documents"},
                             {"datetime": datetime, "json": json, "time": time, "math": __import__("math"),
                              "hashlib": hashlib,
                              "MEASUREMENT_DEFINITIONS": {"path-quality-v1": {}, "temporal-stability-v1": {},
-                                                         "failure-domain-graph-v1": {}}})
+                                                         "failure-domain-graph-v1": {}},
+                             "TRIANGLE_DEFINITIONS": (
+                                 ("redundancy-independence-churn", ("R", "D", "C"), ("R->D", "D->C", "C->R")),
+                                 ("responsiveness-inertia-quality", ("K", "H", "Q"), ("K->H", "H->Q", "Q->K")),
+                                 ("redundancy-responsiveness-churn", ("R", "K", "C"), ("R->K", "K->C", "C->R")))})
 probe = load_functions(ROOT / "charts/re8ch-advanced-fabric/files/conformance-probe.py",
                        {"percentile", "history_summary", "encode_name", "dns_packet", "dns_rcode", "prometheus_escape",
                         "labels", "parse_observed_time", "prometheus_text"},
@@ -34,6 +39,40 @@ probe = load_functions(ROOT / "charts/re8ch-advanced-fabric/files/conformance-pr
 
 
 class NetworkQualityTest(unittest.TestCase):
+    def test_npa_v2_is_eligibility_evidence_without_scores(self):
+        now = 1_800_000_000
+        observed = datetime.datetime.fromtimestamp(now, datetime.timezone.utc).isoformat()
+        measurements = {
+            ("node-a", "host"): {"sourcePlane": "host", "fresh": True, "observedAt": observed,
+                "paths": [{"pathRole": "current", "lossRatio": 0}]},
+            ("node-a", "pod"): {"sourcePlane": "pod", "fresh": True, "observedAt": observed,
+                "paths": [{"pathRole": "current", "lossRatio": 0}]},
+        }
+        document, status = controller["path_evidence_document"](
+            {"name": "node-a"}, True, {"routeDynamics": {"startedAt": observed}}, measurements, 120, now)
+        self.assertEqual(document["apiVersion"], "networking.re8ch.com/v1alpha2")
+        self.assertEqual(status["state"], "Ready")
+        self.assertTrue(status["pathEvidence"]["reachable"])
+        self.assertNotIn("dimensions", status)
+
+    def test_not_ready_npa_fails_closed_without_zero_substitution(self):
+        _, status = controller["path_evidence_document"](
+            {"name": "node-a"}, False, {}, {}, 120, 1_800_000_000)
+        self.assertEqual(status["state"], "Unknown")
+        self.assertIsNone(status["pathEvidence"]["reachable"])
+        self.assertEqual(status["conditions"][0]["status"], "False")
+
+    def test_discovered_change_remains_pending_windows(self):
+        fingerprints, events = controller["discovered_interventions"](
+            {"metadata": {"generation": 2}}, {}, {"advancedfabric/re8ch": "1"}, "2027-01-15T08:00:00Z")
+        self.assertEqual(fingerprints["advancedfabric/re8ch"], "2")
+        self.assertEqual(events[0]["status"]["identificationState"], "PendingWindows")
+
+    def test_default_triangles_are_open_without_identified_edges(self):
+        triangles = list(controller["triangle_documents"]())
+        self.assertEqual(len(triangles), 3)
+        self.assertTrue(all(status["state"] == "Open" for _, status in triangles))
+        self.assertTrue(all(len(status["missingEvidence"]) == 6 for _, status in triangles))
     def test_service_osi_uses_measured_inflow_and_exposes_numeric_calculation(self):
         now = 1_800_000_000
         observed = datetime.datetime.fromtimestamp(now, datetime.timezone.utc).isoformat()

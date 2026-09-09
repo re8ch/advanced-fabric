@@ -55,6 +55,130 @@ spec:
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
+metadata: {name: networkinterventions.networking.re8ch.com}
+spec:
+  group: networking.re8ch.com
+  scope: Cluster
+  names: {plural: networkinterventions, singular: networkintervention, kind: NetworkIntervention, shortNames: [nint]}
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources: {status: {}}
+      additionalPrinterColumns:
+        - {name: Subject, type: string, jsonPath: .spec.subjectRef.name}
+        - {name: Cause, type: string, jsonPath: .spec.cause}
+        - {name: State, type: string, jsonPath: .status.identificationState}
+        - {name: Detected, type: date, jsonPath: .spec.detectedAt}
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [subjectRef, cause, detectedAt, fingerprint]
+              properties:
+                subjectRef: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                cause: {type: string, enum: [GitOpsGeneration, RoutePolicy, BGPPeer, Gateway, NodeReadiness, Datapath, RIBFIB]}
+                detectedAt: {type: string, format: date-time}
+                fingerprint: {type: string, minLength: 8}
+                changedVariables: {type: array, items: {type: string}}
+                evidenceRefs: {type: array, items: {type: string}}
+                windows: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                controls: {type: object, x-kubernetes-preserve-unknown-fields: true}
+            status:
+              type: object
+              properties:
+                identificationState: {type: string, enum: [Discovered, PendingWindows, Eligible, Confounded]}
+                confounders: {type: array, items: {type: string}}
+                conditions: {type: array, items: {type: object, x-kubernetes-preserve-unknown-fields: true}}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata: {name: networktradeoffestimates.networking.re8ch.com}
+spec:
+  group: networking.re8ch.com
+  scope: Cluster
+  names: {plural: networktradeoffestimates, singular: networktradeoffestimate, kind: NetworkTradeoffEstimate, shortNames: [nte]}
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - {name: Relation, type: string, jsonPath: .spec.relation}
+        - {name: State, type: string, jsonPath: .status.state}
+        - {name: Tau, type: number, jsonPath: .status.tau}
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [subjectRef, relation, interventionRef]
+              properties:
+                subjectRef: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                relation: {type: string, pattern: '^[QKHCRD]->[QKHCRD]$'}
+                interventionRef: {type: string}
+                metricQueries: {type: array, items: {type: string}}
+            status:
+              type: object
+              required: [state]
+              properties:
+                state: {type: string, enum: [Identified, InsufficientEvidence, Confounded]}
+                tau: {type: number, nullable: true}
+                confidenceInterval: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                sampleCount: {type: integer, minimum: 0}
+                direction: {type: string, enum: [positive, negative, zero, unknown]}
+                windows: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                evidenceRefs: {type: array, items: {type: string}}
+                missingEvidence: {type: array, items: {type: string}}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata: {name: tradeofftriangles.networking.re8ch.com}
+spec:
+  group: networking.re8ch.com
+  scope: Cluster
+  names: {plural: tradeofftriangles, singular: tradeofftriangle, kind: TradeoffTriangle, shortNames: [tt]}
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources: {status: {}}
+      additionalPrinterColumns:
+        - {name: Vertices, type: string, jsonPath: .spec.vertexLabel}
+        - {name: State, type: string, jsonPath: .status.state}
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [vertices, edges]
+              properties:
+                vertexLabel: {type: string}
+                vertices:
+                  type: array
+                  minItems: 3
+                  maxItems: 3
+                  items: {type: string, enum: [Q, K, H, C, R, D]}
+                edges:
+                  type: array
+                  minItems: 3
+                  maxItems: 3
+                  items: {type: string, pattern: '^[QKHCRD]->[QKHCRD]$'}
+                subjectSelector: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                hypothesis: {type: string}
+            status:
+              type: object
+              properties:
+                state: {type: string, enum: [Open, Closed]}
+                observedVertices: {type: array, items: {type: string}}
+                identifiedEdges: {type: array, items: {type: string}}
+                missingEvidence: {type: array, items: {type: string}}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
 metadata: {name: networkpathassessments.networking.re8ch.com}
 spec:
   group: networking.re8ch.com
@@ -67,7 +191,7 @@ spec:
   versions:
     - name: v1alpha1
       served: true
-      storage: true
+      storage: false
       subresources: {status: {}}
       additionalPrinterColumns:
         - {name: Subject, type: string, jsonPath: .spec.subjectRef.name}
@@ -135,6 +259,47 @@ spec:
                       reason: {type: string}
                       message: {type: string}
                       lastTransitionTime: {type: string, format: date-time}
+    - name: v1alpha2
+      served: true
+      storage: true
+      subresources: {status: {}}
+      additionalPrinterColumns:
+        - {name: Subject, type: string, jsonPath: .spec.subjectRef.name}
+        - {name: State, type: string, jsonPath: .status.state}
+        - {name: Reachable, type: boolean, jsonPath: .status.pathEvidence.reachable}
+        - {name: Observed, type: date, jsonPath: .status.observedAt}
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [subjectRef, scope]
+              properties:
+                subjectRef: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                scope: {type: object, x-kubernetes-preserve-unknown-fields: true}
+            status:
+              type: object
+              properties:
+                observedAt: {type: string, format: date-time}
+                validUntil: {type: string, format: date-time}
+                state: {type: string, enum: [Ready, Partial, Unknown, Stale, Contradictory]}
+                nodeReady: {type: boolean, nullable: true}
+                collectorEpoch: {type: string}
+                pathEvidence:
+                  type: object
+                  properties:
+                    reachable: {type: boolean, nullable: true}
+                    currentPathMeasured: {type: boolean}
+                    viableAlternatives: {type: integer, minimum: 0, nullable: true}
+                    freshPlanes: {type: array, items: {type: string}}
+                    missingEvidence: {type: array, items: {type: string}}
+                evidenceRefs: {type: array, items: {type: string}}
+                conditions:
+                  type: array
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [type]
+                  items: {type: object, x-kubernetes-preserve-unknown-fields: true}
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition

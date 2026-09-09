@@ -484,6 +484,125 @@ def publish_assessments(nodes, history, inferences, validity_seconds, service_sn
                     {"propagationPolicy": "Background"})
 
 
+LATENT_REQUIREMENTS = {
+    "Q": ("a_reach", "l_path", "t_rtt"), "K": ("t_state", "t_conv", "t_recover", "delta_ribfib"),
+    "H": ("p_route", "x_nh", "t_persist", "f_switch", "a_osc"),
+    "C": ("u_bgp", "w_bgp", "lambda_flap", "delta_ribfib", "n_path_change"),
+    "R": ("w_ecmp", "m_route", "n_peer", "n_nh", "n_if", "n_alt"),
+    "D": ("n_tun", "n_gw", "n_asn", "g_dep", "n_alt"),
+}
+TRIANGLE_DEFINITIONS = (
+    ("redundancy-independence-churn", ("R", "D", "C"), ("R->D", "D->C", "C->R")),
+    ("responsiveness-inertia-quality", ("K", "H", "Q"), ("K->H", "H->Q", "Q->K")),
+    ("redundancy-responsiveness-churn", ("R", "K", "C"), ("R->K", "K->C", "C->R")),
+)
+
+
+def custom_upsert(resource, document, status=None, version="v1alpha1"):
+    name = document["metadata"]["name"]
+    path = "/apis/networking.re8ch.com/%s/%s/%s" % (version, resource, name)
+    try:
+        request("PATCH", path, document)
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404: raise
+        request("POST", "/apis/networking.re8ch.com/%s/%s" % (version, resource), document)
+    if status is not None:
+        request("PATCH", path + "/status", {"status": status})
+
+
+def path_evidence_document(node, node_ready, status, measurements, validity_seconds, now=None):
+    """Build PublicEdge eligibility evidence without O/S/I scores."""
+    now = time.time() if now is None else now
+    current = [item for key, item in measurements.items() if key[0] == node["name"] and item.get("fresh")]
+    planes = sorted({item.get("sourcePlane") for item in current if item.get("sourcePlane")})
+    paths = [path for item in current for path in item.get("paths", [])]
+    selected = [path for path in paths if path.get("pathRole", "current") == "current"]
+    alternatives = [path for path in paths if path.get("pathRole") == "alternative" and
+                    path.get("feasible") is True and float(path.get("lossRatio", 1)) < 1]
+    executed = bool(selected) and all(path.get("lossRatio") is not None for path in selected)
+    reachable = all(float(path.get("lossRatio", 1)) < 1 for path in selected) if executed else None
+    observed = max([status.get("observedAt", "")] + [item.get("observedAt", "") for item in current])
+    observed_epoch = parse_time(observed) if observed else None
+    valid_until_epoch = observed_epoch + validity_seconds if observed_epoch is not None else None
+    missing = []
+    if not node_ready: missing.append("node-ready")
+    if set(planes) != {"host", "pod"}: missing.append("fresh-host-and-pod")
+    if not executed: missing.append("executed-current-path")
+    if reachable is not True: missing.append("reachable-current-path")
+    stale = valid_until_epoch is not None and now > valid_until_epoch
+    eligible = not missing and not stale
+    state = "Ready" if eligible else "Stale" if stale else "Partial" if current else "Unknown"
+    reason = "PathEvidenceReady" if eligible else "EvidenceExpired" if stale else "RequiredEvidenceUnavailable"
+    name = "node-" + node["name"].lower().replace("_", "-").replace(".", "-")
+    document = {"apiVersion": "networking.re8ch.com/v1alpha2", "kind": "NetworkPathAssessment",
+        "metadata": {"name": name, "labels": {"app.kubernetes.io/managed-by": "re8ch-advanced-fabric",
+            "networking.re8ch.com/subject-kind": "Node"}},
+        "spec": {"subjectRef": {"apiVersion": "v1", "kind": "Node", "name": node["name"]},
+                 "scope": {"plane": "host-and-pod", "direction": "bidirectional", "protocol": "mixed"}}}
+    result = {"state": state, "nodeReady": bool(node_ready),
+        "collectorEpoch": str(status.get("routeDynamics", {}).get("startedAt") or "unknown"),
+        "pathEvidence": {"reachable": reachable, "currentPathMeasured": executed,
+                         "viableAlternatives": len(alternatives) if paths else None,
+                         "freshPlanes": planes, "missingEvidence": missing},
+        "evidenceRefs": ["path-quality-v1", "node-measurement-v1alpha1"],
+        "conditions": [condition("EvidenceReady", eligible, reason,
+                                  "fresh, executed and reachable path evidence" if eligible else ", ".join(missing) or reason)]}
+    if observed: result["observedAt"] = observed
+    if valid_until_epoch is not None:
+        result["validUntil"] = datetime.datetime.fromtimestamp(valid_until_epoch, datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+    return document, result
+
+
+def structural_observations(nodes, measurement_maps):
+    output = {}
+    for node in nodes:
+        payload = measurement_maps.get(node["name"], {})
+        records = {item.get("symbol"): item for item in payload.get("measurements", [])}
+        latent = {}
+        for name, required in LATENT_REQUIREMENTS.items():
+            available = [symbol for symbol in required if symbol in records and records[symbol].get("state") != "not-observed"]
+            latent[name] = {"state": "Observed" if len(available) == len(required) else "Partial" if available else "NotObserved",
+                            "requiredSymbols": list(required), "availableSymbols": available,
+                            "missingSymbols": [symbol for symbol in required if symbol not in available],
+                            "value": None, "reason": "latent mapping is not identified"}
+        output[node["name"]] = {"observedAt": payload.get("observedAt"), "latent": latent,
+                                "measurementRef": "advanced-fabric-measurement-" + node["name"].lower().replace("_", "-").replace(".", "-")}
+    return {"schemaVersion": "networking.re8ch.com/structural-observation-v1alpha1", "nodes": output}
+
+
+def discovered_interventions(fabric, statuses, previous, now_text):
+    fingerprints = {"advancedfabric/re8ch": str(fabric.get("metadata", {}).get("generation", 0))}
+    for node, status in statuses.items():
+        fingerprints["node/" + node] = hashlib.sha256(json.dumps({"datapath": status.get("datapath"),
+            "route": status.get("routeFingerprint"), "bgp": status.get("bgpFingerprint")},
+            sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    events = []
+    for subject, fingerprint in fingerprints.items():
+        if subject in previous and previous[subject] != fingerprint:
+            digest = hashlib.sha256((subject + fingerprint + now_text).encode()).hexdigest()[:12]
+            kind, name = subject.split("/", 1)
+            events.append({"apiVersion": "networking.re8ch.com/v1alpha1", "kind": "NetworkIntervention",
+                "metadata": {"name": "auto-" + digest, "labels": {"app.kubernetes.io/managed-by": "re8ch-advanced-fabric"}},
+                "spec": {"subjectRef": {"kind": "AdvancedFabric" if kind == "advancedfabric" else "Node", "name": name},
+                         "cause": "GitOpsGeneration" if kind == "advancedfabric" else "RIBFIB", "detectedAt": now_text,
+                         "fingerprint": fingerprint, "changedVariables": [], "evidenceRefs": [subject],
+                         "windows": {"before": "pending", "control": "pending", "after": "pending"}},
+                "status": {"identificationState": "PendingWindows", "confounders": [],
+                           "conditions": [condition("Identifiable", False, "PendingAlignedWindows",
+                                                    "automatic discovery does not establish causality")]}})
+    return fingerprints, events
+
+
+def triangle_documents():
+    for name, vertices, edges in TRIANGLE_DEFINITIONS:
+        missing = ["vertex:" + value for value in vertices] + ["edge:" + value for value in edges]
+        yield ({"apiVersion": "networking.re8ch.com/v1alpha1", "kind": "TradeoffTriangle",
+                "metadata": {"name": name, "labels": {"app.kubernetes.io/managed-by": "re8ch-advanced-fabric"}},
+                "spec": {"vertexLabel": "-".join(vertices), "vertices": list(vertices), "edges": list(edges),
+                         "subjectSelector": {}, "hypothesis": "experimentally identified trade-off hypothesis"}},
+               {"state": "Open", "observedVertices": [], "identifiedEdges": [], "missingEvidence": missing})
+
+
 def upsert_configmap(name, labels, payload, data_key=None):
     data_key = data_key or ("plan.json" if name.endswith("plan") else "inference.json")
     obj = {"apiVersion": "v1", "kind": "ConfigMap",
@@ -627,6 +746,8 @@ def reconcile():
                                    "app.kubernetes.io%2Fcomponent%3Dnetwork-quality").get("items", [])
     status_configmaps = request("GET", "/api/v1/namespaces/kube-system/configmaps?labelSelector="
                                 "networking.re8ch.com%2Fnode-status%3Dtrue").get("items", [])
+    measurement_configmaps = request("GET", "/api/v1/namespaces/kube-system/configmaps?labelSelector="
+                                     "app.kubernetes.io%2Fcomponent%3Dnode-measurement").get("items", [])
     traffic_configmaps = request("GET", "/api/v1/configmaps?labelSelector="
                                  "app.kubernetes.io%2Fcomponent%3Dservice-traffic").get("items", [])
     active_nodes, retired_nodes = cluster_inventory(spec["nodes"], node_objects)
@@ -726,23 +847,19 @@ def reconcile():
                 statuses[parsed["node"]] = parsed
         except (TypeError, ValueError, json.JSONDecodeError):
             continue
-    try:
-        history_object = request("GET", "/api/v1/namespaces/kube-system/configmaps/advanced-fabric-osi-history")
-        existing_history = json.loads(history_object.get("data", {}).get("history.json", "{}")).get("nodes", {})
-    except (urllib.error.HTTPError, TypeError, ValueError, json.JSONDecodeError):
-        existing_history = {}
     measurement_state = measurement_index(probe_configmaps, set(node_index),
                                           int(quality_standard.get("freshnessSeconds", 120)), time.time())
-    osi_history = append_osi_history(existing_history, active_nodes, statuses, measurement_state)
-    traffic_state = service_traffic_index(
-        traffic_configmaps, int(quality_standard.get("freshnessSeconds", 120)), time.time())
-    service_snapshots = {subject: service_osi_snapshot(subject, traffic, osi_history, node_index)
-                         for subject, traffic in traffic_state.items()}
-    upsert_configmap("advanced-fabric-osi-history",
+    parsed_measurements = {}
+    for item in measurement_configmaps:
+        try:
+            payload = json.loads(item.get("data", {}).get("measurement.json", "{}"))
+            if payload.get("node") in node_index: parsed_measurements[payload["node"]] = payload
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+    upsert_configmap("advanced-fabric-structural-observations",
                      {"app.kubernetes.io/name": "re8ch-advanced-fabric",
-                      "app.kubernetes.io/component": "osi-history"},
-                     {"schemaVersion": "networking.re8ch.com/osi-history-v1alpha1", "nodes": osi_history},
-                     "history.json")
+                      "app.kubernetes.io/component": "structural-observation"},
+                     structural_observations(active_nodes, parsed_measurements), "observations.json")
     upsert_configmap("advanced-fabric-measurement-model",
                      {"app.kubernetes.io/name": "re8ch-advanced-fabric",
                       "app.kubernetes.io/component": "measurement-model"},
@@ -750,9 +867,27 @@ def reconcile():
                       "definitions": MEASUREMENT_DEFINITIONS}, "definitions.json")
     component_api = spec.get("componentAPI", {})
     if component_api.get("publishAssessments", True):
-        publish_assessments(active_nodes, osi_history, inferences,
-                            int(component_api.get("validitySeconds", quality_standard.get("freshnessSeconds", 120))),
-                            service_snapshots)
+        validity = int(component_api.get("validitySeconds", quality_standard.get("freshnessSeconds", 120)))
+        for node in active_nodes:
+            document, assessment_status = path_evidence_document(
+                node, ready.get(node["name"], False), statuses.get(node["name"], {}), measurement_state, validity)
+            custom_upsert("networkpathassessments", document, assessment_status, "v1alpha2")
+    for document, triangle_status in triangle_documents():
+        custom_upsert("tradeofftriangles", document, triangle_status)
+    try:
+        discovery_object = request("GET", "/api/v1/namespaces/kube-system/configmaps/advanced-fabric-intervention-state")
+        previous_fingerprints = json.loads(discovery_object.get("data", {}).get("fingerprints.json", "{}"))
+    except (urllib.error.HTTPError, TypeError, ValueError, json.JSONDecodeError):
+        previous_fingerprints = {}
+    now_text = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    fingerprints, discovered = discovered_interventions(fabric, statuses, previous_fingerprints, now_text)
+    for event in discovered:
+        event_status = event.pop("status")
+        custom_upsert("networkinterventions", event, event_status)
+    upsert_configmap("advanced-fabric-intervention-state",
+                     {"app.kubernetes.io/name": "re8ch-advanced-fabric",
+                      "app.kubernetes.io/component": "intervention-discovery"},
+                     fingerprints, "fingerprints.json")
     for (namespace, name), status in policy_status.items():
         request("PATCH", f"/apis/networking.re8ch.com/v1alpha1/namespaces/{namespace}/trafficpolicies/{name}/status", {"status": status})
     api_ready_nodes = sorted(name for name in eligible_api_nodes if ready.get(name, False))
