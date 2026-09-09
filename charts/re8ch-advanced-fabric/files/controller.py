@@ -519,8 +519,12 @@ def path_evidence_document(node, node_ready, status, measurements, validity_seco
     selected = [path for path in paths if path.get("pathRole", "current") == "current"]
     alternatives = [path for path in paths if path.get("pathRole") == "alternative" and
                     path.get("feasible") is True and float(path.get("lossRatio", 1)) < 1]
-    executed = bool(selected) and all(path.get("lossRatio") is not None for path in selected)
-    reachable = all(float(path.get("lossRatio", 1)) < 1 for path in selected) if executed else None
+    executed_paths = [path for path in selected if path.get("lossRatio") is not None]
+    executed = bool(executed_paths)
+    successful_planes = {item.get("sourcePlane") for item in current if any(
+        path.get("pathRole", "current") == "current" and path.get("lossRatio") is not None and
+        float(path.get("lossRatio", 1)) < 1 for path in item.get("paths", []))}
+    reachable = set(successful_planes) == {"host", "pod"} if executed else None
     observed = max([status.get("observedAt", "")] + [item.get("observedAt", "") for item in current])
     observed_epoch = parse_time(observed) if observed else None
     valid_until_epoch = observed_epoch + validity_seconds if observed_epoch is not None else None
