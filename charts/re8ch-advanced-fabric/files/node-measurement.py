@@ -81,6 +81,7 @@ def read_service_traffic():
         return windows
     queries = (
         ('sum(increase(hubble_flow_bytes_total{node="%s",direction="ingress"}[2m]))' % NODE, "Hubble flow bytes"),
+        ('sum(increase(envoy_listener_downstream_cx_rx_bytes_total{node="%s"}[2m]))' % NODE, "Gateway Envoy listener receive bytes"),
         ('sum(increase(envoy_downstream_cx_rx_bytes_total{kubernetes_node="%s"}[2m]))' % NODE, "Gateway Envoy receive bytes"),
     )
     for query, source in queries:
