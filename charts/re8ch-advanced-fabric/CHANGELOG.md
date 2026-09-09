@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.22.1
+
+- Isolate NPA reachability from unrelated offline full-matrix targets while requiring one viable path on each fresh host and pod plane.
+
 ## 0.22.0
 
 - Replace fixed-weight O/S/I score publication with Trade-off Observatory structural evidence.
