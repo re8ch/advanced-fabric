@@ -89,6 +89,8 @@ class DNSServerTest(unittest.TestCase):
 
     def test_chart_has_no_legacy_runtime_dependency(self):
         template = (ROOT / "charts/re8ch-advanced-fabric/templates/advanced-fabric-dns.yaml").read_text()
+        self.assertIn(".Values.advancedFabric.dns.testNodeSelector", template)
+        self.assertIn("tolerations: [{operator: Exists}]", template)
         self.assertNotIn("k3s-coredns", template)
         self.assertNotIn("name: coredns", template)
         self.assertNotIn("Corefile", template)

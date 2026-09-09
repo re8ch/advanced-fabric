@@ -75,6 +75,9 @@ advancedFabric:
     replicas: 3
     pdbMinAvailable: 2
     nodeSelector: {}
+    # Keep the Helm release test on a node whose pod sandbox and DNS Service
+    # path are part of the authoritative DNS readiness contract.
+    testNodeSelector: {}
     affinity: {}
     kubernetesApiEndpoints: []
     clusterDomain: cluster.local
