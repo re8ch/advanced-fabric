@@ -2,8 +2,8 @@ apiVersion: v2
 name: re8ch-advanced-fabric
 description: RE8CH native-routing, FRR spine/leaf fabric, service VIPs, and network economics
 type: application
-version: 0.21.1
-appVersion: "0.21.1"
+version: 0.22.0
+appVersion: "0.22.0"
 kubeVersion: ">=1.30.0-0"
 home: https://github.com/re8ch/advanced-fabric
 sources:
@@ -21,6 +21,12 @@ annotations:
   artifacthub.io/operatorCapabilities: deep insights
   artifacthub.io/containsSecurityUpdates: "false"
   artifacthub.io/changes: |
+    - kind: changed
+      description: Replace generated O/S/I scores with an evidence-first Trade-off Observatory and open, identification-gated triangles.
+    - kind: added
+      description: Add NetworkIntervention, NetworkTradeoffEstimate and TradeoffTriangle APIs plus Prometheus structural-evidence metrics.
+    - kind: changed
+      description: Publish NetworkPathAssessment v1alpha2 as freshness and reachability eligibility evidence for consumers such as PublicEdge.
     - kind: fixed
       description: Use the FRR 10.x-compatible BGP neighbor JSON command so node status and the 31-symbol measurement envelope publish successfully.
     - kind: added
@@ -118,10 +124,25 @@ annotations:
       displayName: Traffic Policy
       description: Namespace-scoped fastest, balanced or greedy egress intent.
     - kind: NetworkPathAssessment
-      version: v1alpha1
+      version: v1alpha2
       name: networkpathassessments.networking.re8ch.com
       displayName: Network Path Assessment
-      description: Consumer-neutral, freshness-bounded O/S/I network evidence for an active subject.
+      description: Consumer-neutral, freshness-bounded path eligibility evidence for an active subject.
+    - kind: NetworkIntervention
+      version: v1alpha1
+      name: networkinterventions.networking.re8ch.com
+      displayName: Network Intervention
+      description: Automatically discovered change candidate awaiting aligned experimental windows.
+    - kind: NetworkTradeoffEstimate
+      version: v1alpha1
+      name: networktradeoffestimates.networking.re8ch.com
+      displayName: Network Trade-off Estimate
+      description: Evidence-bounded finite-difference estimate with explicit identification state.
+    - kind: TradeoffTriangle
+      version: v1alpha1
+      name: tradeofftriangles.networking.re8ch.com
+      displayName: Trade-off Triangle
+      description: A configurable three-variable hypothesis that closes only with identified evidence.
   artifacthub.io/links: |
     - name: source
       url: https://github.com/re8ch/advanced-fabric

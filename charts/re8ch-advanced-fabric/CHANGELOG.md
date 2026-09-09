@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.22.0
+
+- Replace fixed-weight O/S/I score publication with Trade-off Observatory structural evidence.
+- Add intervention, estimate and configurable triangle APIs with strict identification states.
+- Export evidence coverage and raw observable metrics without encoding missing data as zero.
+- Redefine NPA v1alpha2 as the PublicEdge-ready path eligibility contract.
+
 ## 0.21.1
 
 - Use the FRR 10.x-compatible `show bgp neighbors json` command. The previous
