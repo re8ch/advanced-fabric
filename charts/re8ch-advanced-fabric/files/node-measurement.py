@@ -352,7 +352,8 @@ def build_snapshot(status, probes, now=None, state=None, service_traffic=None):
     established = [item for item in flatten_objects(status.get("frr", {}).get("bgp", {}))
                    if str(item.get("state", item.get("peerState", ""))).lower() == "established"]
     candidate_next_hops = sorted({hop for route in rib for path in route.get("paths", [])
-                                  for hop in path.get("nextHops", []) if hop and hop != "unknown"})
+                                  for hop in path.get("nextHops", [])
+                                  if hop and hop not in ("unknown", "0.0.0.0", "::")})
     route_interfaces = sorted({route.get("dev") for route in routes if route.get("dev")})
     as_paths = sorted({path.get("asPath") for route in rib for path in route.get("paths", []) if path.get("asPath")})
     updates = [{key: value for key, value in item.get("messageStats", {}).items() if "update" in key.lower()}

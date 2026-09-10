@@ -2,7 +2,9 @@
 set -eu
 
 WINDOW_SECONDS=${SERVICE_TRAFFIC_WINDOW_SECONDS:-15}
-SOCKET=/host/var/run/cilium/hubble.sock
+# /var/run is an absolute host symlink to /run. Inside the host-root mount,
+# address the real path so the symlink cannot escape back into the container.
+SOCKET=/host/run/cilium/hubble.sock
 TARGET=/status/service-traffic.json
 SOURCE_EPOCH=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 

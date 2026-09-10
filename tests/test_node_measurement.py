@@ -76,6 +76,12 @@ def test_service_traffic_adapter_discovery_is_cluster_scoped():
     assert '"/api/v1/namespaces/%s/configmaps?labelSelector=" % NAMESPACE' not in source
 
 
+def test_hubble_collector_addresses_host_run_socket_without_symlink_escape():
+    script = (ROOT / "charts/re8ch-advanced-fabric/files/service-traffic-window.sh").read_text()
+    assert "SOCKET=/host/run/cilium/hubble.sock" in script
+    assert "SOCKET=/host/var/run/cilium/hubble.sock" not in script
+
+
 def test_hubble_only_window_does_not_fabricate_zero_bytes():
     tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
     fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
@@ -148,6 +154,27 @@ def test_unreachable_next_hops_are_observed_zero_when_every_probe_ran():
     assert record["state"] == "observed"
     assert record["value"] == 0
     assert record["scope"]["candidateCount"] == 2
+
+
+def test_on_link_next_hop_sentinels_do_not_require_active_probe():
+    build = load_builder()
+    now = datetime.datetime(2026, 9, 9, tzinfo=datetime.timezone.utc).timestamp()
+    status = {
+        "observedAt": "2026-09-09T00:00:00Z",
+        "datapath": {"mode": "native"},
+        "frr": {"state": "active", "neighbors": {}, "bgp": {}},
+        "routes": [],
+        "bgpRib": [{"prefix": "192.0.2.0/24", "paths": [
+            {"best": True, "nextHops": ["0.0.0.0", "::"]}
+        ]}],
+        "nextHopProbes": [],
+        "peerRoutes": [],
+        "routeDynamics": {"startedAt": "2026-09-08T23:59:00Z"},
+    }
+    record = {item["symbol"]: item for item in build(status, [], now)["measurements"]}["n_nh"]
+    assert record["state"] == "observed"
+    assert record["value"] == 0
+    assert record["scope"]["candidateCount"] == 0
 
 
 def test_missing_next_hop_probe_attempt_still_blocks_validity():
