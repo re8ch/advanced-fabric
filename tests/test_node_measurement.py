@@ -76,6 +76,12 @@ def test_service_traffic_adapter_discovery_is_cluster_scoped():
     assert '"/api/v1/namespaces/%s/configmaps?labelSelector=" % NAMESPACE' not in source
 
 
+def test_hubble_collector_addresses_host_run_socket_without_symlink_escape():
+    script = (ROOT / "charts/re8ch-advanced-fabric/files/service-traffic-window.sh").read_text()
+    assert "SOCKET=/host/run/cilium/hubble.sock" in script
+    assert "SOCKET=/host/var/run/cilium/hubble.sock" not in script
+
+
 def test_hubble_only_window_does_not_fabricate_zero_bytes():
     tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
     fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
