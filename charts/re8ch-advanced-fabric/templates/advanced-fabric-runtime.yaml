@@ -61,6 +61,8 @@ data:
 {{ .Files.Get "files/conformance-probe.py" | indent 4 }}
   node-measurement.py: |
 {{ .Files.Get "files/node-measurement.py" | indent 4 }}
+  service-traffic-window.sh: |
+{{ .Files.Get "files/service-traffic-window.sh" | indent 4 }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -74,7 +76,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/runtime: {{ printf "%s\n%s\n%s\n%s\n%s" (.Files.Get "files/controller.py") (.Files.Get "files/host-agent.sh") (.Files.Get "files/status-publisher.py") (.Files.Get "files/conformance-probe.py") (.Files.Get "files/node-measurement.py") | sha256sum | quote }}
+        checksum/runtime: {{ printf "%s\n%s\n%s\n%s\n%s\n%s" (.Files.Get "files/controller.py") (.Files.Get "files/host-agent.sh") (.Files.Get "files/status-publisher.py") (.Files.Get "files/conformance-probe.py") (.Files.Get "files/node-measurement.py") (.Files.Get "files/service-traffic-window.sh") | sha256sum | quote }}
       labels: {app.kubernetes.io/name: re8ch-advanced-fabric-controller}
     spec:
       serviceAccountName: re8ch-advanced-fabric
@@ -105,7 +107,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/runtime: {{ printf "%s\n%s\n%s\n%s\n%s" (.Files.Get "files/controller.py") (.Files.Get "files/host-agent.sh") (.Files.Get "files/status-publisher.py") (.Files.Get "files/conformance-probe.py") (.Files.Get "files/node-measurement.py") | sha256sum | quote }}
+        checksum/runtime: {{ printf "%s\n%s\n%s\n%s\n%s\n%s" (.Files.Get "files/controller.py") (.Files.Get "files/host-agent.sh") (.Files.Get "files/status-publisher.py") (.Files.Get "files/conformance-probe.py") (.Files.Get "files/node-measurement.py") (.Files.Get "files/service-traffic-window.sh") | sha256sum | quote }}
       labels: {app.kubernetes.io/name: re8ch-advanced-fabric-agent}
     spec:
       serviceAccountName: re8ch-advanced-fabric
@@ -114,6 +116,18 @@ spec:
       priorityClassName: system-node-critical
       tolerations: [{operator: Exists}]
       containers:
+        - name: service-traffic-window
+          image: quay.io/cilium/cilium-ci:latest@sha256:19ff540fa2927047d4935d5c1b173818225cc288c20a55d0bdb8748ea8adbb26
+          command: [/bin/sh, /runtime/service-traffic-window.sh]
+          env:
+            - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
+            - {name: SERVICE_TRAFFIC_WINDOW_SECONDS, value: "15"}
+          securityContext: {privileged: true}
+          resources: {requests: {cpu: 5m, memory: 16Mi}, limits: {cpu: 100m, memory: 64Mi}}
+          volumeMounts:
+            - {name: runtime, mountPath: /runtime, readOnly: true}
+            - {name: host, mountPath: /host, readOnly: true}
+            - {name: status, mountPath: /status}
         - name: agent
           image: quay.io/cilium/cilium-ci:latest@sha256:19ff540fa2927047d4935d5c1b173818225cc288c20a55d0bdb8748ea8adbb26
           command: [/bin/sh, /runtime/host-agent.sh]

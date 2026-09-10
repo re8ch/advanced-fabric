@@ -1,5 +1,6 @@
 import ast
 import datetime
+import re
 from pathlib import Path
 
 
@@ -9,7 +10,7 @@ SOURCE = ROOT / "charts/re8ch-advanced-fabric/files/node-measurement.py"
 
 def load_builder():
     tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
-    names = {"flatten_objects", "observed", "partial", "unavailable", "right_censored", "fingerprint", "path_fingerprint", "probe_loss",
+    names = {"flatten_objects", "observed", "partial", "unavailable", "right_censored", "service_traffic_value", "fingerprint", "path_fingerprint", "probe_loss",
              "advance_episode", "counter_totals", "directional_prefix_counts", "tracking_value", "build_snapshot"}
     selected = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names]
     namespace = {
@@ -31,6 +32,64 @@ def load_builder():
     }
     exec(compile(ast.Module(body=selected, type_ignores=[]), str(SOURCE), "exec"), namespace)
     return namespace["build_snapshot"]
+
+
+def load_gateway_helpers():
+    tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
+    names = {"parse_envoy_ingress_counters", "gateway_counter_window"}
+    selected = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names]
+    namespace = {"datetime": datetime, "re": re, "NODE": "node-a"}
+    exec(compile(ast.Module(body=selected, type_ignores=[]), str(SOURCE), "exec"), namespace)
+    return namespace
+
+
+def test_envoy_ingress_counter_parser_uses_real_downstream_families_only():
+    parse = load_gateway_helpers()["parse_envoy_ingress_counters"]
+    counters = parse("""
+envoy_http_downstream_cx_rx_bytes_total{envoy_http_conn_manager_prefix="http"} 100
+envoy_http_downstream_cx_rx_bytes_total{envoy_http_conn_manager_prefix="admin"} 300
+envoy_tcp_access_re8ch_com_downstream_cx_rx_bytes_total 25
+envoy_http_downstream_cx_rx_bytes_buffered 999
+envoy_cluster_upstream_cx_rx_bytes_total{envoy_cluster_name="backend"} 800
+envoy_cluster_upstream_cx_tx_bytes_total{envoy_cluster_name="backend"} 900
+""")
+    assert counters == {
+        'envoy_http_downstream_cx_rx_bytes_total{envoy_http_conn_manager_prefix="http"}': 100.0,
+        "envoy_tcp_access_re8ch_com_downstream_cx_rx_bytes_total": 25.0,
+    }
+
+
+def test_gateway_counter_window_is_reset_safe_and_accepts_measured_zero():
+    window = load_gateway_helpers()["gateway_counter_window"]
+    state = {}
+    assert window({"envoy_http_downstream_cx_rx_bytes_total": 10}, state, 100) == []
+    result = window({"envoy_http_downstream_cx_rx_bytes_total": 10}, state, 115)
+    assert result[0]["receivedBytes"] == 0
+    assert result[0]["windowSeconds"] == 15
+    assert result[0]["availableDimensions"] == ["bytes"]
+    assert window({"envoy_http_downstream_cx_rx_bytes_total": 2}, state, 130) == []
+
+
+def test_service_traffic_adapter_discovery_is_cluster_scoped():
+    source = SOURCE.read_text(encoding="utf-8")
+    assert 'api("GET", "/api/v1/configmaps?labelSelector="' in source
+    assert '"/api/v1/namespaces/%s/configmaps?labelSelector=" % NAMESPACE' not in source
+
+
+def test_hubble_only_window_does_not_fabricate_zero_bytes():
+    tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
+    fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+              and node.name == "service_traffic_value")
+    namespace = {}
+    exec(compile(ast.Module(body=[fn], type_ignores=[]), str(SOURCE), "exec"), namespace)
+    value = namespace["service_traffic_value"]([{
+        "receivedFlowEvents": 0, "requests": 0,
+        "availableDimensions": ["flowEvents", "requests"],
+        "observationPlane": "hubble", "evidenceRef": "local-hubble-window",
+    }])
+    assert "bytes" not in value
+    assert value["flowEvents"] == 0
+    assert value["requests"] == 0
 
 
 def test_complete_envelope_right_censors_quiet_episode_measurements():

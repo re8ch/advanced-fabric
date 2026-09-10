@@ -5,6 +5,7 @@ import datetime
 import hashlib
 import json
 import os
+import re
 import ssl
 import time
 import urllib.error
@@ -59,14 +60,84 @@ def read_probe(plane):
         return {}
 
 
-def read_service_traffic():
-    """Read the registered Service-flow adapter contract without inventing host traffic."""
+def parse_envoy_ingress_counters(payload):
+    """Return one non-overlapping set of downstream receive-byte counters."""
+    counters = {}
+    for line in payload.splitlines():
+        if not line or line.startswith("#"):
+            continue
+        match = re.match(r"^(([^ {]+)(?:\{[^}]*\})?)\s+([-+0-9.eE]+)$", line.strip())
+        if not match:
+            continue
+        identity, name, raw = match.groups()
+        canonical = name == "envoy_listener_downstream_cx_rx_bytes_total"
+        http = name == "envoy_http_downstream_cx_rx_bytes_total"
+        tcp = bool(re.match(r"^envoy_tcp_.+_downstream_cx_rx_bytes_total$", name))
+        if not (canonical or http or tcp) or "buffered" in name or "admin" in identity.lower():
+            continue
+        try:
+            value = float(raw)
+        except ValueError:
+            continue
+        counters[identity] = value
+    # A listener-wide counter already covers the protocol-specific families.
+    listener = {key: value for key, value in counters.items()
+                if key.split("{", 1)[0] == "envoy_listener_downstream_cx_rx_bytes_total"}
+    return listener or counters
+
+
+def gateway_counter_window(counters, state, now):
+    """Convert stable downstream counters into one completed delta window."""
+    previous = state.get("gatewayTrafficCounters")
+    previous_at = state.get("gatewayTrafficObservedEpoch")
+    state["gatewayTrafficCounters"] = counters
+    state["gatewayTrafficObservedEpoch"] = now
+    reset = previous is None or previous_at is None or set(previous) != set(counters) or any(
+        counters[key] < previous.get(key, counters[key]) for key in counters)
+    if reset or now <= previous_at:
+        state["gatewayTrafficEpoch"] = datetime.datetime.fromtimestamp(
+            now, datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+        return []
+    return [{"node": NODE, "receivedBytes": sum(counters[key] - previous[key] for key in counters),
+             "observedAt": datetime.datetime.fromtimestamp(now, datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+             "windowSeconds": now - previous_at, "source": "node-local Cilium Envoy downstream counters",
+             "observationPlane": "gateway", "availableDimensions": ["bytes"],
+             "sourceEpoch": state.get("gatewayTrafficEpoch"),
+             "evidenceRef": "http://127.0.0.1:9964/metrics"}]
+
+
+def local_gateway_window(state, now=None):
+    """Build a reset-safe window from the node-local Cilium Envoy endpoint."""
+    now = time.time() if now is None else now
     try:
-        response = api("GET", "/api/v1/namespaces/%s/configmaps?labelSelector=" % NAMESPACE +
+        with urllib.request.urlopen("http://127.0.0.1:9964/metrics", timeout=5) as response:
+            payload = response.read().decode("utf-8", errors="replace")
+    except (OSError, urllib.error.URLError):
+        return []
+    counters = parse_envoy_ingress_counters(payload)
+    return gateway_counter_window(counters, state, now) if counters else []
+
+
+def read_service_traffic(state, now=None):
+    """Read complete local and registered Service-flow windows without inventing zeros."""
+    now = time.time() if now is None else now
+    windows = []
+    try:
+        with open("/status/service-traffic.json", encoding="utf-8") as stream:
+            payload = json.load(stream)
+        for sample in payload.get("samples", []):
+            if sample.get("node") == NODE:
+                windows.append({**sample, "observedAt": payload.get("observedAt"),
+                                "windowSeconds": payload.get("windowSeconds"),
+                                "sourceEpoch": payload.get("sourceEpoch"),
+                                "evidenceRef": "local-hubble-window"})
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        pass
+    try:
+        response = api("GET", "/api/v1/configmaps?labelSelector=" +
                        "app.kubernetes.io%2Fcomponent%3Dservice-traffic")
     except urllib.error.HTTPError:
-        return []
-    windows = []
+        response = {"items": []}
     for item in response.get("items", []):
         try:
             payload = json.loads(item.get("data", {}).get("measurement.json") or
@@ -76,27 +147,12 @@ def read_service_traffic():
         for sample in payload.get("samples", []):
             if sample.get("node") == NODE:
                 windows.append({**sample, "observedAt": payload.get("observedAt"),
-                                "windowSeconds": payload.get("windowSeconds")})
-    if windows:
-        return windows
-    queries = (
-        ('sum(increase(hubble_flow_bytes_total{node="%s",direction="ingress"}[2m]))' % NODE, "Hubble flow bytes"),
-        ('sum(increase(envoy_listener_downstream_cx_rx_bytes_total{node="%s"}[2m]))' % NODE, "Gateway Envoy listener receive bytes"),
-        ('sum(increase(envoy_downstream_cx_rx_bytes_total{kubernetes_node="%s"}[2m]))' % NODE, "Gateway Envoy receive bytes"),
-    )
-    for query, source in queries:
-        path = "/api/v1/namespaces/observability-system/services/http:vmselect-re8ch-metrics:8481/" \
-               "proxy/select/0/prometheus/api/v1/query?" + urllib.parse.urlencode({"query": query})
-        try:
-            result = api("GET", path).get("data", {}).get("result", [])
-            if result and result[0].get("value") and result[0]["value"][1] not in ("NaN", "+Inf", "-Inf"):
-                return [{"receivedBytes": float(result[0]["value"][1]), "receivedPackets": 0,
-                         "requests": 0, "source": source,
-                         "observedAt": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
-                         "windowSeconds": 120}]
-        except (urllib.error.HTTPError, TypeError, ValueError, KeyError):
-            continue
-    return []
+                                "windowSeconds": payload.get("windowSeconds"),
+                                "sourceEpoch": payload.get("sourceEpoch"),
+                                "evidenceRef": "%s/%s" % (item.get("metadata", {}).get("namespace", ""),
+                                                             item.get("metadata", {}).get("name", ""))})
+    windows.extend(local_gateway_window(state, now))
+    return windows
 
 
 def fingerprint(status):
@@ -215,6 +271,24 @@ def right_censored(source, observed_at, window_started_at, reason):
                           "windowEndedAt": observed_at, "eventObserved": False}}
 
 
+def service_traffic_value(windows):
+    dimensions = sorted({dimension for item in windows
+                         for dimension in item.get("availableDimensions", [])})
+    value = {"windows": len(windows), "availableDimensions": dimensions,
+             "observationPlanes": sorted({item.get("observationPlane", "registered-adapter")
+                                           for item in windows}),
+             "sourceEpochs": sorted({item.get("sourceEpoch") for item in windows
+                                      if item.get("sourceEpoch")}),
+             "evidenceRefs": sorted({item.get("evidenceRef") for item in windows
+                                      if item.get("evidenceRef")})}
+    fields = {"bytes": "receivedBytes", "flowEvents": "receivedFlowEvents",
+              "packets": "receivedPackets", "requests": "requests"}
+    for dimension, field in fields.items():
+        if dimension in dimensions or any(field in item for item in windows):
+            value[dimension] = sum(float(item.get(field) or 0) for item in windows if field in item)
+    return value
+
+
 TRACKING_UNITS = {
     "x_nh": "next-hops", "p_route": "routes", "w_ecmp": "paths", "m_route": "paths",
     "n_path_change": "changes", "d_mode": "interfaces", "a_reach": "ratio", "l_path": "ratio",
@@ -244,7 +318,7 @@ def tracking_value(symbol, value, now=None):
         return float(max([float(item.get("lossRatio") or 0) for item in value or []] or [0]))
     if symbol == "t_rtt":
         return float(max([float(item.get("p95Ms") or 0) for item in value or []] or [0]))
-    if symbol == "b_rx": return float(value.get("bytes") or 0)
+    if symbol == "b_rx": return float(value["bytes"]) if "bytes" in value else None
     if symbol in ("b_est", "n_peer"): return float(value.get("established") or 0)
     if symbol in ("n_adv", "n_recv"):
         needle = "sent" if symbol == "n_adv" else "received"
@@ -334,10 +408,9 @@ def build_snapshot(status, probes, now=None, state=None, service_traffic=None):
         "a_reach": observed({"attempts": attempts, "successes": successes}, "host/pod conformance probes", observed_at) if attempts else unavailable("no completed path trials"),
         "l_path": observed([{"scope": [p.get("sourcePlane"), p.get("targetNode"), p.get("targetPlane")], "lossRatio": p.get("lossRatio"), "attempts": p.get("attempts")} for p in paths], "host/pod conformance probes", observed_at) if paths else unavailable("no completed path trials"),
         "t_rtt": observed([{"scope": [p.get("sourcePlane"), p.get("targetNode"), p.get("targetPlane")], "p50Ms": p.get("p50Ms"), "p95Ms": p.get("p95Ms")} for p in paths], "TCP conformance probes", observed_at) if paths else unavailable("no successful delay stream"),
-        "b_rx": observed({"bytes": sum(int(item.get("receivedBytes") or 0) for item in traffic_fresh),
-                          "packets": sum(int(item.get("receivedPackets") or 0) for item in traffic_fresh),
-                          "requests": sum(int(item.get("requests") or 0) for item in traffic_fresh),
-                          "windows": len(traffic_fresh)}, "registered Service-flow adapter", observed_at)
+        "b_rx": observed(service_traffic_value(traffic_fresh),
+                          "registered Hubble/Gateway Service-flow windows", observed_at,
+                          note="zero is valid only for a successfully completed observation window")
                 if traffic_fresh else unavailable("requires a fresh registered Hubble/Gateway Service-flow window"),
         "b_est": observed({"established": len(established)}, "FRR neighbor summary", observed_at),
         "n_peer": observed({"configured": len(peers), "established": len(established)}, "declared inventory and FRR", observed_at),
@@ -502,9 +575,17 @@ def publish_metrics(snapshot):
     lines.extend(["# HELP advanced_fabric_observable Current raw network observable.",
                   "# TYPE advanced_fabric_observable gauge"])
     for symbol, value in values.items():
+        if symbol == "b_rx":
+            continue
         unit = snapshot["trackingValues"][symbol]["unit"]
         lines.append('advanced_fabric_observable{%s,symbol="%s",unit="%s"} %s' %
                      (base, symbol, prometheus_escape(unit), value))
+    traffic = records.get("b_rx", {}).get("value") or {}
+    for dimension, unit in (("bytes", "bytes"), ("flowEvents", "flow-events"),
+                            ("packets", "packets"), ("requests", "requests")):
+        if dimension in traffic:
+            lines.append('advanced_fabric_observable{%s,symbol="b_rx",dimension="%s",unit="%s"} %s' %
+                         (base, dimension, unit, traffic[dimension]))
     requirements = {"Q": ("a_reach", "l_path", "t_rtt"), "K": ("t_state", "t_conv", "t_recover", "delta_ribfib"),
                     "H": ("p_route", "x_nh", "t_persist", "f_switch", "a_osc"),
                     "C": ("u_bgp", "w_bgp", "lambda_flap", "delta_ribfib", "n_path_change"),
@@ -530,8 +611,9 @@ while True:
     try:
         with open("/status/status.json", encoding="utf-8") as stream:
             current_status = json.load(stream)
+        collector_state = read_state()
         snapshot = build_snapshot(current_status, [read_probe("host"), read_probe("pod")],
-                                  state=read_state(), service_traffic=read_service_traffic())
+                                  state=collector_state, service_traffic=read_service_traffic(collector_state))
         publish(snapshot)
         publish_episode(snapshot.get("currentEpisode") or snapshot.get("latestEpisode"))
         publish_metrics(snapshot)

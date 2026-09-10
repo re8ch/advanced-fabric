@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.25.0
+
+- Close `b_rx` with completed node-local Hubble flow windows and reset-safe
+  Cilium Envoy downstream receive-byte deltas.
+- Discover registered Service-flow adapters cluster-wide and retain their
+  namespace/name evidence references.
+- Treat zero traffic as valid only when a collector completed its window;
+  missing, reset or unstable counter evidence remains unavailable.
+
 ## 0.23.1
 
 - Read the canonical Envoy listener receive-byte counter from node-labelled
