@@ -586,11 +586,11 @@ def publish_metrics(snapshot):
         if dimension in traffic:
             lines.append('advanced_fabric_observable{%s,symbol="b_rx",dimension="%s",unit="%s"} %s' %
                          (base, dimension, unit, traffic[dimension]))
-    requirements = {"Q": ("a_reach", "l_path", "t_rtt"), "K": ("t_state", "t_conv", "t_recover", "delta_ribfib"),
+    requirements = {"Q": ("a_reach", "l_path", "t_rtt", "b_rx"), "K": ("t_state", "t_conv", "t_recover", "delta_ribfib"),
                     "H": ("p_route", "x_nh", "t_persist", "f_switch", "a_osc"),
-                    "C": ("u_bgp", "w_bgp", "lambda_flap", "delta_ribfib", "n_path_change"),
-                    "R": ("w_ecmp", "m_route", "n_peer", "n_nh", "n_if", "n_alt"),
-                    "D": ("n_tun", "n_gw", "n_asn", "g_dep", "n_alt")}
+                    "C": ("u_bgp", "w_bgp", "n_adv", "n_recv", "lambda_flap", "delta_ribfib", "n_path_change"),
+                    "R": ("b_est", "w_ecmp", "m_route", "n_peer", "n_nh", "n_if", "n_alt"),
+                    "D": ("d_mode", "n_tun", "n_gw", "n_asn", "g_dep", "n_alt")}
     lines.extend(["# HELP advanced_fabric_structural_evidence_coverage Fraction of required observables currently valid.",
                   "# TYPE advanced_fabric_structural_evidence_coverage gauge"])
     for latent, required in requirements.items():
