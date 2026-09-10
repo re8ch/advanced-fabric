@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.25.1
+
+- Treat FRR `0.0.0.0` and `::` on-link/self next-hop sentinels as
+  non-probeable identities so a complete same-window probe set closes `n_nh`.
+
 ## 0.25.0
 
 - Close `b_rx` with completed node-local Hubble flow windows and reset-safe

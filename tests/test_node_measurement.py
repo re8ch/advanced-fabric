@@ -150,6 +150,27 @@ def test_unreachable_next_hops_are_observed_zero_when_every_probe_ran():
     assert record["scope"]["candidateCount"] == 2
 
 
+def test_on_link_next_hop_sentinels_do_not_require_active_probe():
+    build = load_builder()
+    now = datetime.datetime(2026, 9, 9, tzinfo=datetime.timezone.utc).timestamp()
+    status = {
+        "observedAt": "2026-09-09T00:00:00Z",
+        "datapath": {"mode": "native"},
+        "frr": {"state": "active", "neighbors": {}, "bgp": {}},
+        "routes": [],
+        "bgpRib": [{"prefix": "192.0.2.0/24", "paths": [
+            {"best": True, "nextHops": ["0.0.0.0", "::"]}
+        ]}],
+        "nextHopProbes": [],
+        "peerRoutes": [],
+        "routeDynamics": {"startedAt": "2026-09-08T23:59:00Z"},
+    }
+    record = {item["symbol"]: item for item in build(status, [], now)["measurements"]}["n_nh"]
+    assert record["state"] == "observed"
+    assert record["value"] == 0
+    assert record["scope"]["candidateCount"] == 0
+
+
 def test_missing_next_hop_probe_attempt_still_blocks_validity():
     build = load_builder()
     now = datetime.datetime(2026, 9, 9, tzinfo=datetime.timezone.utc).timestamp()
