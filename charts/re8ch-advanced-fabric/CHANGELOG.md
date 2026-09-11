@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.25.3
+
+- Gate a control-plane VIP rollout only on its guarded origin nodes. Offline
+  non-origin nodes retain their desired host transaction and converge when they
+  return instead of globally blocking healthy ECMP origins.
+
 ## 0.25.2
 
 - Scope guarded control-plane VIP apply safety to the nodes that announce the
