@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.26.1
+
+- Project observed `datapath.mode` into a documented producer-owned `d_mode`
+  scalar (`tunnel=0`, `hybrid=0.5`, `native=1`) while retaining the raw mode
+  evidence in measurement snapshots.
+- Restore complete synchronized R/D/C coordinates without browser-side fallback
+  or coercing missing evidence to zero.
+
 ## 0.26.0
 
 - Added the public, read-only observation API and status-based Service discovery.

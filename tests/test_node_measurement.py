@@ -34,6 +34,15 @@ def load_builder():
     return namespace["build_snapshot"]
 
 
+def load_tracking_value():
+    tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
+    selected = [node for node in tree.body if isinstance(node, ast.FunctionDef) and
+                node.name == "tracking_value"]
+    namespace = {"datetime": datetime, "time": __import__("time")}
+    exec(compile(ast.Module(body=selected, type_ignores=[]), str(SOURCE), "exec"), namespace)
+    return namespace["tracking_value"]
+
+
 def load_gateway_helpers():
     tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
     names = {"parse_envoy_ingress_counters", "gateway_counter_window"}
@@ -254,6 +263,15 @@ def test_counter_reset_never_becomes_observed_delta():
     records = {item["symbol"]: item for item in result["measurements"]}
     assert records["u_bgp"]["state"] == "not-observed"
     assert records["w_bgp"]["state"] == "not-observed"
+
+
+def test_datapath_mode_is_projected_by_the_producer():
+    tracking_value = load_tracking_value()
+    assert tracking_value("d_mode", {"mode": "tunnel"}) == 0.0
+    assert tracking_value("d_mode", {"mode": "hybrid"}) == 0.5
+    assert tracking_value("d_mode", {"mode": "native"}) == 1.0
+    assert tracking_value("d_mode", {"mode": "unknown"}) is None
+    assert tracking_value("d_mode", {}) is None
 
 
 def test_counter_delta_requires_same_collector_epoch():
