@@ -42,3 +42,6 @@ def test_source_identity_rules_support_cidr_wide_protocol_agnostic_snat():
     assert "'.port // empty'" in script
     assert 'if [ -z "${protocol}" ]' in script
     assert 'ip daddr "${destination}" counter snat to "${source}"' in script
+    rules = script.split("manage_source_identity_rules()", 1)[1].split("manage_frr_import_prefixes()", 1)[0]
+    assert rules.index(".sourceIdentityRules[]?") < rules.index('add chain ip "${table}" "${marker}"')
+    assert "done || return 1" in rules

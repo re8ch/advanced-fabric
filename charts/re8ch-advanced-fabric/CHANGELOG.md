@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.25.11
+
+- Commit source-identity transaction markers only after every nftables rule is
+  installed successfully, so a partial transaction is retried on restart.
+
 ## 0.25.10
 
 - Allow source-identity transactions to SNAT an entire destination CIDR when
