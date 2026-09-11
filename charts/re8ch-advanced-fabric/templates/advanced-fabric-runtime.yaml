@@ -1,11 +1,11 @@
 {{- if .Values.advancedFabric.enabled }}
 apiVersion: v1
 kind: ServiceAccount
-metadata: {name: re8ch-advanced-fabric, namespace: kube-system}
+metadata: {name: advanced-fabric, namespace: {{ .Values.advancedFabric.runtimeNamespace }}}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
-metadata: {name: re8ch-advanced-fabric}
+metadata: {name: advanced-fabric}
 rules:
   - apiGroups: [""]
     resources: [nodes, pods, services]
@@ -16,13 +16,13 @@ rules:
   - apiGroups: [""]
     resources: [configmaps]
     verbs: [get, list, create, patch, update]
-  - apiGroups: [networking.re8ch.com]
+  - apiGroups: [{{ .Values.advancedFabric.apiGroup }}, {{ .Values.advancedFabric.legacyApiGroup }}]
     resources: [advancedfabrics, trafficpolicies]
     verbs: [get, list, watch]
-  - apiGroups: [networking.re8ch.com]
+  - apiGroups: [{{ .Values.advancedFabric.apiGroup }}, {{ .Values.advancedFabric.legacyApiGroup }}]
     resources: [networkpathassessments, networkinterventions, networkobservationepisodes, networktradeoffestimates, tradeofftriangles]
     verbs: [get, list, watch, create, patch, update, delete]
-  - apiGroups: [networking.re8ch.com]
+  - apiGroups: [{{ .Values.advancedFabric.apiGroup }}, {{ .Values.advancedFabric.legacyApiGroup }}]
     resources: [advancedfabrics/status, trafficpolicies/status, networkpathassessments/status, networkinterventions/status, networkobservationepisodes/status, tradeofftriangles/status]
     verbs: [get, patch, update]
 {{- if .Values.advancedFabric.virtualIngress.enabled }}
@@ -42,17 +42,19 @@ rules:
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
-metadata: {name: re8ch-advanced-fabric}
+metadata: {name: advanced-fabric}
 subjects:
-  - {kind: ServiceAccount, name: re8ch-advanced-fabric, namespace: kube-system}
-roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: re8ch-advanced-fabric}
+  - {kind: ServiceAccount, name: advanced-fabric, namespace: {{ .Values.advancedFabric.runtimeNamespace }}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: advanced-fabric}
 ---
 apiVersion: v1
 kind: ConfigMap
-metadata: {name: re8ch-advanced-fabric-runtime, namespace: kube-system}
+metadata: {name: advanced-fabric-runtime, namespace: {{ .Values.advancedFabric.runtimeNamespace }}}
 data:
   controller.py: |
 {{ .Files.Get "files/controller.py" | indent 4 }}
+  observation-api.py: |
+{{ .Files.Get "files/observation-api.py" | indent 4 }}
   host-agent.sh: |
 {{ .Files.Get "files/host-agent.sh" | indent 4 }}
   status-publisher.py: |
@@ -67,19 +69,19 @@ data:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: re8ch-advanced-fabric-controller
-  namespace: kube-system
+  name: advanced-fabric-controller
+  namespace: {{ .Values.advancedFabric.runtimeNamespace }}
 spec:
   replicas: 1
   strategy: {type: Recreate}
-  selector: {matchLabels: {app.kubernetes.io/name: re8ch-advanced-fabric-controller}}
+  selector: {matchLabels: {app.kubernetes.io/name: advanced-fabric-controller}}
   template:
     metadata:
       annotations:
-        checksum/runtime: {{ printf "%s\n%s\n%s\n%s\n%s\n%s" (.Files.Get "files/controller.py") (.Files.Get "files/host-agent.sh") (.Files.Get "files/status-publisher.py") (.Files.Get "files/conformance-probe.py") (.Files.Get "files/node-measurement.py") (.Files.Get "files/service-traffic-window.sh") | sha256sum | quote }}
-      labels: {app.kubernetes.io/name: re8ch-advanced-fabric-controller}
+        checksum/runtime: {{ printf "%s\n%s\n%s\n%s\n%s\n%s\n%s" (.Files.Get "files/controller.py") (.Files.Get "files/observation-api.py") (.Files.Get "files/host-agent.sh") (.Files.Get "files/status-publisher.py") (.Files.Get "files/conformance-probe.py") (.Files.Get "files/node-measurement.py") (.Files.Get "files/service-traffic-window.sh") | sha256sum | quote }}
+      labels: {app.kubernetes.io/name: advanced-fabric-controller}
     spec:
-      serviceAccountName: re8ch-advanced-fabric
+      serviceAccountName: advanced-fabric
       priorityClassName: system-cluster-critical
 {{- with .Values.advancedFabric.controller.nodeSelector }}
       nodeSelector:
@@ -87,30 +89,59 @@ spec:
 {{- end }}
       containers:
         - name: controller
-          image: python:3.13-alpine@sha256:540c7d91f98ff6880174c40e99067bf5941eb54d818a7a5e094d188b196a934d
+          image: {{ .Values.advancedFabric.controller.image }}
           command: [python3, /runtime/controller.py]
           env:
-            - {name: ADVISOR_URL, value: "http://re8ch-routing-advisor.qianwen-ops.svc.cluster.local:9790"}
+            - {name: ADVISOR_URL, value: {{ .Values.advancedFabric.controller.advisorURL | quote }}}
+            - {name: ADVANCED_FABRIC_API_GROUP, value: {{ .Values.advancedFabric.apiGroup | quote }}}
+            - {name: ADVANCED_FABRIC_LEGACY_API_GROUP, value: {{ .Values.advancedFabric.legacyApiGroup | quote }}}
+            - {name: ADVANCED_FABRIC_LEGACY_INSTANCE, value: "re8ch"}
+            - {name: ADVANCED_FABRIC_INSTANCE, value: {{ .Values.advancedFabric.instanceName | quote }}}
+            - {name: OBSERVATION_API_SERVICE, value: {{ .Values.advancedFabric.componentAPI.serviceName | quote }}}
+            - {name: OBSERVATION_API_PORT, value: {{ .Values.advancedFabric.componentAPI.port | quote }}}
+            - {name: POD_NAMESPACE, valueFrom: {fieldRef: {fieldPath: metadata.namespace}}}
           securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true}
           resources: {requests: {cpu: 20m, memory: 32Mi}, limits: {cpu: 250m, memory: 128Mi}}
           volumeMounts: [{name: runtime, mountPath: /runtime, readOnly: true}, {name: tmp, mountPath: /tmp}]
-      volumes: [{name: runtime, configMap: {name: re8ch-advanced-fabric-runtime, defaultMode: 365}}, {name: tmp, emptyDir: {}}]
+        - name: observation-api
+          image: {{ .Values.advancedFabric.controller.image }}
+          command: [python3, /runtime/observation-api.py]
+          env:
+            - {name: ADVANCED_FABRIC_API_GROUP, value: {{ .Values.advancedFabric.apiGroup | quote }}}
+            - {name: POD_NAMESPACE, valueFrom: {fieldRef: {fieldPath: metadata.namespace}}}
+            - {name: OBSERVATION_API_PORT, value: {{ .Values.advancedFabric.componentAPI.port | quote }}}
+          ports: [{name: observation-api, containerPort: {{ .Values.advancedFabric.componentAPI.port }}}]
+          readinessProbe: {httpGet: {path: /healthz, port: observation-api}, periodSeconds: 10}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true}
+          resources: {requests: {cpu: 5m, memory: 16Mi}, limits: {cpu: 100m, memory: 64Mi}}
+          volumeMounts: [{name: runtime, mountPath: /runtime, readOnly: true}, {name: tmp, mountPath: /tmp}]
+      volumes: [{name: runtime, configMap: {name: advanced-fabric-runtime, defaultMode: 365}}, {name: tmp, emptyDir: {}}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.advancedFabric.componentAPI.serviceName }}
+  namespace: {{ .Values.advancedFabric.runtimeNamespace }}
+  labels: {app.kubernetes.io/name: advanced-fabric-observation-api, app.kubernetes.io/part-of: advanced-fabric}
+spec:
+  selector: {app.kubernetes.io/name: advanced-fabric-controller}
+  ports: [{name: http, port: {{ .Values.advancedFabric.componentAPI.port }}, targetPort: observation-api}]
 ---
 apiVersion: apps/v1
 kind: DaemonSet
-metadata: {name: re8ch-advanced-fabric-agent, namespace: kube-system}
+metadata: {name: advanced-fabric-agent, namespace: {{ .Values.advancedFabric.runtimeNamespace }}}
 spec:
   # Status collection must continue converging when a minority of retained
   # nodes are offline; an unavailable node must not pin every healthy agent.
   updateStrategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 25%}}
-  selector: {matchLabels: {app.kubernetes.io/name: re8ch-advanced-fabric-agent}}
+  selector: {matchLabels: {app.kubernetes.io/name: advanced-fabric-agent}}
   template:
     metadata:
       annotations:
-        checksum/runtime: {{ printf "%s\n%s\n%s\n%s\n%s\n%s" (.Files.Get "files/controller.py") (.Files.Get "files/host-agent.sh") (.Files.Get "files/status-publisher.py") (.Files.Get "files/conformance-probe.py") (.Files.Get "files/node-measurement.py") (.Files.Get "files/service-traffic-window.sh") | sha256sum | quote }}
-      labels: {app.kubernetes.io/name: re8ch-advanced-fabric-agent}
+        checksum/runtime: {{ printf "%s\n%s\n%s\n%s\n%s\n%s\n%s" (.Files.Get "files/controller.py") (.Files.Get "files/observation-api.py") (.Files.Get "files/host-agent.sh") (.Files.Get "files/status-publisher.py") (.Files.Get "files/conformance-probe.py") (.Files.Get "files/node-measurement.py") (.Files.Get "files/service-traffic-window.sh") | sha256sum | quote }}
+      labels: {app.kubernetes.io/name: advanced-fabric-agent}
     spec:
-      serviceAccountName: re8ch-advanced-fabric
+      serviceAccountName: advanced-fabric
       hostPID: true
       hostNetwork: true
       priorityClassName: system-node-critical
@@ -131,7 +162,9 @@ spec:
         - name: agent
           image: quay.io/cilium/cilium-ci:latest@sha256:19ff540fa2927047d4935d5c1b173818225cc288c20a55d0bdb8748ea8adbb26
           command: [/bin/sh, /runtime/host-agent.sh]
-          env: [{name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}]
+          env:
+            - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
+            - {name: POD_NAMESPACE, valueFrom: {fieldRef: {fieldPath: metadata.namespace}}}
           securityContext: {privileged: true}
           readinessProbe: {exec: {command: [/usr/bin/test, -f, /run/advanced-fabric-ready]}, periodSeconds: 10}
           volumeMounts:
@@ -142,7 +175,9 @@ spec:
         - name: publisher
           image: python:3.13-alpine@sha256:540c7d91f98ff6880174c40e99067bf5941eb54d818a7a5e094d188b196a934d
           command: [python3, /runtime/status-publisher.py]
-          env: [{name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}]
+          env:
+            - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
+            - {name: POD_NAMESPACE, valueFrom: {fieldRef: {fieldPath: metadata.namespace}}}
           securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true}
           resources: {requests: {cpu: 5m, memory: 12Mi}, limits: {cpu: 50m, memory: 32Mi}}
           volumeMounts:
@@ -175,6 +210,9 @@ spec:
           env:
             - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
             - {name: SOURCE_PLANE, value: host}
+            - {name: POD_NAMESPACE, valueFrom: {fieldRef: {fieldPath: metadata.namespace}}}
+            - {name: ADVANCED_FABRIC_API_GROUP, value: {{ .Values.advancedFabric.apiGroup | quote }}}
+            - {name: ADVANCED_FABRIC_INSTANCE, value: {{ .Values.advancedFabric.instanceName | quote }}}
             - {name: DNS_SERVICE, value: {{ .Values.advancedFabric.dns.service.name | quote }}}
             - {name: PROBE_INTERVAL_SECONDS, value: {{ .Values.advancedFabric.networkQuality.intervalSeconds | quote }}}
             - {name: PROBE_TIMEOUT_SECONDS, value: {{ .Values.advancedFabric.networkQuality.timeoutSeconds | quote }}}
@@ -204,12 +242,12 @@ spec:
           volumeMounts: [{name: network-quality-metrics, mountPath: /metrics, readOnly: true}]
 {{- end }}
       volumes:
-        - {name: runtime, configMap: {name: re8ch-advanced-fabric-runtime, defaultMode: 365}}
+        - {name: runtime, configMap: {name: advanced-fabric-runtime, defaultMode: 365}}
         - {name: desired, configMap: {name: advanced-fabric-desired, optional: true}}
         - {name: host, hostPath: {path: /, type: Directory}}
         - {name: status, emptyDir: {}}
 {{- if .Values.advancedFabric.networkQuality.enabled }}
-        - {name: network-quality-metrics, hostPath: {path: /var/lib/re8ch/advanced-fabric/textfile, type: DirectoryOrCreate}}
+        - {name: network-quality-metrics, hostPath: {path: /var/lib/advanced-fabric/textfile, type: DirectoryOrCreate}}
 {{- if .Values.advancedFabric.networkQuality.doh.enabled }}
         - {name: doh-ca, secret: {secretName: {{ .Values.advancedFabric.networkQuality.doh.caSecretName }}}}
 {{- end }}
@@ -219,26 +257,26 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: re8ch-advanced-fabric-node-exporter
-  namespace: kube-system
-  labels: {app.kubernetes.io/name: re8ch-advanced-fabric-node-exporter, app.kubernetes.io/part-of: re8ch-advanced-fabric}
+  name: advanced-fabric-node-exporter
+  namespace: {{ .Values.advancedFabric.runtimeNamespace }}
+  labels: {app.kubernetes.io/name: advanced-fabric-node-exporter, app.kubernetes.io/part-of: advanced-fabric}
 spec:
   clusterIP: None
   publishNotReadyAddresses: true
-  selector: {app.kubernetes.io/name: re8ch-advanced-fabric-agent}
+  selector: {app.kubernetes.io/name: advanced-fabric-agent}
   ports: [{name: metrics, port: 19101, targetPort: metrics}]
 {{- if and .Values.advancedFabric.networkQuality.victoriaMetricsServiceScrape (.Capabilities.APIVersions.Has "operator.victoriametrics.com/v1beta1/VMServiceScrape") }}
 ---
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMServiceScrape
 metadata:
-  name: re8ch-advanced-fabric-network-quality
-  namespace: kube-system
-  labels: {app.kubernetes.io/name: re8ch-advanced-fabric-network-quality, app.kubernetes.io/part-of: re8ch-advanced-fabric}
+  name: advanced-fabric-network-quality
+  namespace: {{ .Values.advancedFabric.runtimeNamespace }}
+  labels: {app.kubernetes.io/name: advanced-fabric-network-quality, app.kubernetes.io/part-of: advanced-fabric}
 spec:
-  namespaceSelector: {matchNames: [kube-system]}
+  namespaceSelector: {matchNames: [{{ .Values.advancedFabric.runtimeNamespace }}]}
   selector:
-    matchLabels: {app.kubernetes.io/name: re8ch-advanced-fabric-node-exporter}
+    matchLabels: {app.kubernetes.io/name: advanced-fabric-node-exporter}
   endpoints:
     - port: metrics
       interval: {{ .Values.advancedFabric.networkQuality.intervalSeconds }}s
@@ -247,17 +285,17 @@ spec:
 ---
 apiVersion: apps/v1
 kind: DaemonSet
-metadata: {name: re8ch-advanced-fabric-pod-conformance, namespace: kube-system}
+metadata: {name: advanced-fabric-pod-conformance, namespace: {{ .Values.advancedFabric.runtimeNamespace }}}
 spec:
   updateStrategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 25%}}
-  selector: {matchLabels: {app.kubernetes.io/name: re8ch-advanced-fabric-pod-conformance}}
+  selector: {matchLabels: {app.kubernetes.io/name: advanced-fabric-pod-conformance}}
   template:
     metadata:
-      labels: {app.kubernetes.io/name: re8ch-advanced-fabric-pod-conformance}
+      labels: {app.kubernetes.io/name: advanced-fabric-pod-conformance}
       annotations:
         checksum/runtime: {{ .Files.Get "files/conformance-probe.py" | sha256sum | quote }}
     spec:
-      serviceAccountName: re8ch-advanced-fabric
+      serviceAccountName: advanced-fabric
       priorityClassName: system-node-critical
       tolerations: [{operator: Exists}]
       containers:
@@ -267,6 +305,9 @@ spec:
           env:
             - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
             - {name: SOURCE_PLANE, value: pod}
+            - {name: POD_NAMESPACE, valueFrom: {fieldRef: {fieldPath: metadata.namespace}}}
+            - {name: ADVANCED_FABRIC_API_GROUP, value: {{ .Values.advancedFabric.apiGroup | quote }}}
+            - {name: ADVANCED_FABRIC_INSTANCE, value: {{ .Values.advancedFabric.instanceName | quote }}}
             - {name: DNS_SERVICE, value: {{ .Values.advancedFabric.dns.service.name | quote }}}
             - {name: PROBE_INTERVAL_SECONDS, value: {{ .Values.advancedFabric.networkQuality.intervalSeconds | quote }}}
             - {name: PROBE_TIMEOUT_SECONDS, value: {{ .Values.advancedFabric.networkQuality.timeoutSeconds | quote }}}
@@ -288,8 +329,8 @@ spec:
             - {name: doh-ca, mountPath: /doh-ca, readOnly: true}
 {{- end }}
       volumes:
-        - {name: runtime, configMap: {name: re8ch-advanced-fabric-runtime, defaultMode: 365}}
-        - {name: network-quality-metrics, hostPath: {path: /var/lib/re8ch/advanced-fabric/textfile, type: DirectoryOrCreate}}
+        - {name: runtime, configMap: {name: advanced-fabric-runtime, defaultMode: 365}}
+        - {name: network-quality-metrics, hostPath: {path: /var/lib/advanced-fabric/textfile, type: DirectoryOrCreate}}
 {{- if .Values.advancedFabric.networkQuality.doh.enabled }}
         - {name: doh-ca, secret: {secretName: {{ .Values.advancedFabric.networkQuality.doh.caSecretName }}}}
 {{- end }}

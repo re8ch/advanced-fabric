@@ -278,7 +278,7 @@ NWQ-1/DNSQ-1 measurements. Enable it with
 
 ```sh
 helm upgrade --install re8ch-network-fabric \
-  oci://ghcr.io/re8ch/charts/re8ch-advanced-fabric \
+  oci://ghcr.io/re8ch/charts/advanced-fabric \
   --version 0.20.0 \
   --namespace advanced-fabric --create-namespace
 ```
@@ -294,6 +294,6 @@ not change the router or the operator workstation's public path.
 ## Development
 
 ```sh
-helm lint charts/re8ch-advanced-fabric
-helm template test charts/re8ch-advanced-fabric >/dev/null
+helm lint charts/advanced-fabric
+helm template test charts/advanced-fabric >/dev/null
 ```

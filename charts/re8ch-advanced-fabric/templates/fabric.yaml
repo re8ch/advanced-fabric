@@ -5,7 +5,7 @@ kind: CiliumLoadBalancerIPPool
 metadata:
   name: {{ .Values.pool.name }}
   labels:
-    networking.re8ch.com/stage: {{ .Values.stage | quote }}
+    networking.advfab.org/stage: {{ .Values.stage | quote }}
 spec:
   disabled: {{ not .Values.pool.enabled }}
   allowFirstLastIPs: "No"
@@ -18,9 +18,9 @@ spec:
 apiVersion: cilium.io/v2
 kind: CiliumBGPAdvertisement
 metadata:
-  name: re8ch-service-vip
+  name: advanced-fabric-service-vip
   labels:
-    networking.re8ch.com/advertisement: service-vip
+    networking.advfab.org/advertisement: service-vip
 spec:
   advertisements:
     - advertisementType: Service
@@ -33,7 +33,7 @@ spec:
 apiVersion: cilium.io/v2
 kind: CiliumBGPPeerConfig
 metadata:
-  name: re8ch-service-vip-frr
+  name: advanced-fabric-service-vip-frr
 spec:
   timers:
     connectRetryTimeSeconds: {{ .Values.peer.timers.connectRetry }}
@@ -46,13 +46,13 @@ spec:
     - afi: ipv4
       safi: unicast
       advertisements:
-        matchLabels: {networking.re8ch.com/advertisement: service-vip}
+        matchLabels: {networking.advfab.org/advertisement: service-vip}
 {{- range $name, $node := .Values.nodes }}
 ---
 apiVersion: cilium.io/v2
 kind: CiliumBGPClusterConfig
 metadata:
-  name: re8ch-service-vip-{{ $name }}
+  name: advanced-fabric-service-vip-{{ $name }}
 spec:
   nodeSelector:
     matchLabels: {kubernetes.io/hostname: {{ $node.hostname }}}
@@ -64,7 +64,7 @@ spec:
         - name: {{ .name }}
           peerASN: {{ .asn }}
           peerAddress: {{ .address }}
-          peerConfigRef: {name: re8ch-service-vip-frr}
+          peerConfigRef: {name: advanced-fabric-service-vip-frr}
 {{- end }}
 ---
 apiVersion: cilium.io/v2
@@ -85,7 +85,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: re8ch-cilium-lb-canary
+  name: advanced-fabric-cilium-lb-canary
   namespace: {{ .Values.canary.namespace }}
   labels:
 {{ toYaml $labels | indent 4 }}

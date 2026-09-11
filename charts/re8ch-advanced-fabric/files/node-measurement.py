@@ -13,7 +13,7 @@ import urllib.parse
 import urllib.request
 
 NODE = os.environ["NODE_NAME"]
-NAMESPACE = os.environ.get("POD_NAMESPACE", "kube-system")
+NAMESPACE = os.environ.get("POD_NAMESPACE", "default")
 INTERVAL = int(os.environ.get("MEASUREMENT_INTERVAL_SECONDS", "15"))
 METRICS_DIR = os.environ.get("TEXTFILE_DIR", "")
 STATE_FILE = os.environ.get("MEASUREMENT_STATE_FILE", "/status/measurement-state.json")
@@ -482,7 +482,7 @@ def build_snapshot(status, probes, now=None, state=None, service_traffic=None):
             tracking_values[record["symbol"]] = {"value": scalar, "unit": TRACKING_UNITS[record["symbol"]]}
     counts = {state: sum(item["state"] == state for item in records) for state in ("observed", "partial", "not-observed")}
     missing = [item["symbol"] for item in records if item["state"] != "observed"]
-    return {"schemaVersion": "networking.re8ch.com/node-measurement-v1alpha3", "compatibleSchemaVersions": ["networking.re8ch.com/node-measurement-v1alpha2", "networking.re8ch.com/node-measurement-v1alpha1"], "catalogRef": "advanced-fabric-osi-identification",
+    return {"schemaVersion": "networking.advfab.org/node-measurement-v1alpha3", "compatibleSchemaVersions": ["networking.advfab.org/node-measurement-v1alpha2", "networking.advfab.org/node-measurement-v1alpha1"], "catalogRef": "advanced-fabric-osi-identification",
             "node": NODE, "observedAt": observed_at or now_text, "generatedAt": now_text,
             "envelopeComplete": len(records) == len(SYMBOLS), "coverage": {"total": len(SYMBOLS), **counts},
             "trackingReady": not missing, "trackingGate": {"required": len(SYMBOLS), "observed": len(SYMBOLS) - len(missing),
@@ -495,8 +495,8 @@ def build_snapshot(status, probes, now=None, state=None, service_traffic=None):
 def publish(snapshot):
     name = "advanced-fabric-measurement-" + safe_name(NODE)
     obj = {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": name, "namespace": NAMESPACE,
-           "labels": {"app.kubernetes.io/name": "re8ch-advanced-fabric", "app.kubernetes.io/component":
-           "node-measurement", "networking.re8ch.com/source-node": NODE}},
+           "labels": {"app.kubernetes.io/name": "advanced-fabric", "app.kubernetes.io/component":
+           "node-measurement", "networking.advfab.org/source-node": NODE}},
            "data": {"measurement.json": json.dumps({key: value for key, value in snapshot.items()
                     if key != "collectorState"}, separators=(",", ":"))}}
     path = "/api/v1/namespaces/%s/configmaps/%s" % (NAMESPACE, name)
@@ -513,9 +513,9 @@ def publish_episode(episode):
         return
     digest = hashlib.sha256((NODE + episode["startedAt"]).encode()).hexdigest()[:12]
     name = "natural-" + safe_name(NODE) + "-" + digest
-    document = {"apiVersion": "networking.re8ch.com/v1alpha1", "kind": "NetworkObservationEpisode",
-        "metadata": {"name": name, "labels": {"app.kubernetes.io/managed-by": "re8ch-advanced-fabric",
-        "networking.re8ch.com/subject-node": NODE}}, "spec": {"subjectRef": {"apiVersion": "v1", "kind": "Node", "name": NODE},
+    document = {"apiVersion": "networking.advfab.org/v1alpha1", "kind": "NetworkObservationEpisode",
+        "metadata": {"name": name, "labels": {"app.kubernetes.io/managed-by": "advanced-fabric",
+        "networking.advfab.org/subject-node": NODE}}, "spec": {"subjectRef": {"apiVersion": "v1", "kind": "Node", "name": NODE},
         "cause": episode.get("cause", "NaturalRIBFIBChange"), "detectedAt": episode["startedAt"], "collectorEpoch": episode.get("collectorEpoch"),
         "baseline": {"fingerprint": episode.get("baselineFingerprint"), "pathFingerprint": episode.get("baselinePathFingerprint"),
         "lossRatio": episode.get("baselineLossRatio")},
@@ -528,14 +528,14 @@ def publish_episode(episode):
         "evidenceRefs": ["advanced-fabric-measurement-" + safe_name(NODE)],
         "missingEvidence": [] if episode.get("state") == "Complete" else ["stable recovery window incomplete"],
         "confounders": []}}
-    path = "/apis/networking.re8ch.com/v1alpha1/networkobservationepisodes/%s" % name
+    path = "/apis/networking.advfab.org/v1alpha1/networkobservationepisodes/%s" % name
     body = {key: value for key, value in document.items() if key != "status"}
     try:
         api("PATCH", path, body, "application/merge-patch+json")
     except urllib.error.HTTPError as error:
         if error.code != 404:
             raise
-        api("POST", "/apis/networking.re8ch.com/v1alpha1/networkobservationepisodes", body)
+        api("POST", "/apis/networking.advfab.org/v1alpha1/networkobservationepisodes", body)
     api("PATCH", path + "/status", {"status": document["status"]}, "application/merge-patch+json")
 
 

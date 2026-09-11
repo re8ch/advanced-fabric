@@ -21,7 +21,9 @@ INTERVAL = int(os.environ.get("PROBE_INTERVAL_SECONDS", "30"))
 TIMEOUT = float(os.environ.get("PROBE_TIMEOUT_SECONDS", "2"))
 SAMPLES = int(os.environ.get("PROBE_SAMPLES", "3"))
 PORT = int(os.environ.get("PROBE_PORT", "4241"))
-NAMESPACE = os.environ.get("PUBLISH_NAMESPACE", "kube-system")
+NAMESPACE = os.environ.get("PUBLISH_NAMESPACE", os.environ.get("POD_NAMESPACE", "default"))
+API_GROUP = os.environ.get("ADVANCED_FABRIC_API_GROUP", "networking.advfab.org")
+INSTANCE_NAME = os.environ.get("ADVANCED_FABRIC_INSTANCE", "advanced-fabric")
 TEXTFILE_DIR = os.environ.get("TEXTFILE_DIR", "/metrics")
 DOH_URL = os.environ.get("DOH_URL", "")
 DOH_CA_FILE = os.environ.get("DOH_CA_FILE", "/doh-ca/tls.crt")
@@ -175,13 +177,13 @@ def doh_measure(url, name="kubernetes.default.svc.cluster.local"):
 
 
 def discover():
-    fabric = api("GET", "/apis/networking.re8ch.com/v1alpha1/advancedfabrics/re8ch")
+    fabric = api("GET", "/apis/%s/v1alpha1/advancedfabrics/%s" % (API_GROUP, INSTANCE_NAME))
     inventory = fabric.get("spec", {}).get("nodes", [])
     inventory_nodes = {item.get("name") for item in inventory}
     source_spec = next((item for item in inventory if item.get("name") == NODE), {})
     nodes = api("GET", "/api/v1/nodes").get("items", [])
-    pods = api("GET", "/api/v1/namespaces/kube-system/pods?labelSelector="
-               "app.kubernetes.io%2Fname%3Dre8ch-advanced-fabric-pod-conformance").get("items", [])
+    pods = api("GET", "/api/v1/namespaces/%s/pods?labelSelector=" % NAMESPACE +
+               "app.kubernetes.io%2Fname%3Dadvanced-fabric-pod-conformance").get("items", [])
     pod_ips = {pod.get("spec", {}).get("nodeName"): pod.get("status", {}).get("podIP") for pod in pods
                if pod.get("status", {}).get("phase") == "Running"}
     targets = []
@@ -191,11 +193,11 @@ def discover():
         host_ip = next((item.get("address") for item in addresses if item.get("type") == "InternalIP"), None)
         if name in inventory_nodes:
             targets.append({"node": name, "hostIP": host_ip, "podIP": pod_ips.get(name)})
-    service = api("GET", "/api/v1/namespaces/kube-system/services/%s" % DNS_SERVICE)
+    service = api("GET", "/api/v1/namespaces/%s/services/%s" % (NAMESPACE, DNS_SERVICE))
     dns_servers = [("stable", service.get("spec", {}).get("clusterIP"))]
     if SHADOW_DNS_SERVICE:
         try:
-            shadow = api("GET", "/api/v1/namespaces/kube-system/services/%s" % SHADOW_DNS_SERVICE)
+            shadow = api("GET", "/api/v1/namespaces/%s/services/%s" % (NAMESPACE, SHADOW_DNS_SERVICE))
             dns_servers.append(("shadow", shadow.get("spec", {}).get("clusterIP")))
         except urllib.error.HTTPError as error:
             if error.code != 404:
@@ -268,7 +270,7 @@ def snapshot():
     HISTORY.append({"lossRatio": round(1 - path_successes / path_attempts, 4) if path_attempts else 1,
                     "p95Ms": max(successful_p95) if successful_p95 else None, "completedEpoch": completed_epoch})
     del HISTORY[:-HISTORY_SIZE]
-    return {"schemaVersion": "networking.re8ch.com/network-quality-v1alpha2", "startedAt": started_at,
+    return {"schemaVersion": "networking.advfab.org/network-quality-v1alpha2", "startedAt": started_at,
             "observedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(completed_epoch)),
             "measurementDurationSeconds": round(duration, 3), "validitySeconds": validity,
             "sourceNode": NODE, "sourcePlane": PLANE,
@@ -294,18 +296,18 @@ def parse_observed_time(value):
 def prometheus_text(result):
     """Render the stable NWQ-1/DNSQ-1 Node Exporter textfile contract."""
     lines = [
-        "# HELP re8ch_network_quality_probe_info Static identity of a conformance probe source.",
-        "# TYPE re8ch_network_quality_probe_info gauge",
-        "re8ch_network_quality_probe_info%s 1" % labels({"source_node": NODE, "source_plane": PLANE,
+        "# HELP advanced_fabric_quality_probe_info Static identity of a conformance probe source.",
+        "# TYPE advanced_fabric_quality_probe_info gauge",
+        "advanced_fabric_quality_probe_info%s 1" % labels({"source_node": NODE, "source_plane": PLANE,
                                                          "standard": "NWQ-1_DNSQ-1"}),
-        "# HELP re8ch_network_quality_observed_timestamp_seconds Unix time of the completed measurement.",
-        "# TYPE re8ch_network_quality_observed_timestamp_seconds gauge",
-        "re8ch_network_quality_observed_timestamp_seconds%s %d" % (labels({"source_node": NODE,
+        "# HELP advanced_fabric_quality_observed_timestamp_seconds Unix time of the completed measurement.",
+        "# TYPE advanced_fabric_quality_observed_timestamp_seconds gauge",
+        "advanced_fabric_quality_observed_timestamp_seconds%s %d" % (labels({"source_node": NODE,
             "source_plane": PLANE}), int(parse_observed_time(result["observedAt"]))),
     ]
-    path_metrics = (("attempts", "re8ch_network_path_attempts"), ("successes", "re8ch_network_path_successes"),
-                    ("lossRatio", "re8ch_network_path_loss_ratio"), ("p50Ms", "re8ch_network_path_latency_p50_milliseconds"),
-                    ("p95Ms", "re8ch_network_path_latency_p95_milliseconds"))
+    path_metrics = (("attempts", "advanced_fabric_path_attempts"), ("successes", "advanced_fabric_path_successes"),
+                    ("lossRatio", "advanced_fabric_path_loss_ratio"), ("p50Ms", "advanced_fabric_path_latency_p50_milliseconds"),
+                    ("p95Ms", "advanced_fabric_path_latency_p95_milliseconds"))
     for entry in result.get("paths", []):
         common = {"source_node": entry["sourceNode"], "source_plane": entry["sourcePlane"],
                   "target_node": entry["targetNode"], "target_plane": entry["targetPlane"],
@@ -314,11 +316,11 @@ def prometheus_text(result):
             if entry.get(field) is not None:
                 lines.append("%s%s %s" % (metric, labels(common), entry[field]))
         for source_address in entry.get("selectedSourceAddresses", []):
-            lines.append("re8ch_network_path_selected_source_info%s 1" % labels(dict(common,
+            lines.append("advanced_fabric_path_selected_source_info%s 1" % labels(dict(common,
                          selected_source_address=source_address)))
-    dns_metrics = (("attempts", "re8ch_dns_probe_attempts"), ("successes", "re8ch_dns_probe_successes"),
-                   ("failureRatio", "re8ch_dns_probe_failure_ratio"), ("p50Ms", "re8ch_dns_probe_latency_p50_milliseconds"),
-                   ("p95Ms", "re8ch_dns_probe_latency_p95_milliseconds"))
+    dns_metrics = (("attempts", "advanced_fabric_dns_probe_attempts"), ("successes", "advanced_fabric_dns_probe_successes"),
+                   ("failureRatio", "advanced_fabric_dns_probe_failure_ratio"), ("p50Ms", "advanced_fabric_dns_probe_latency_p50_milliseconds"),
+                   ("p95Ms", "advanced_fabric_dns_probe_latency_p95_milliseconds"))
     for entry in result.get("dns", []):
         common = {"source_node": NODE, "source_plane": PLANE, "server": entry["server"],
                   "server_role": entry.get("serverRole", "stable"),
@@ -327,17 +329,17 @@ def prometheus_text(result):
             if entry.get(field) is not None:
                 lines.append("%s%s %s" % (metric, labels(common), entry[field]))
         for rcode, count in entry.get("rcodes", {}).items():
-            lines.append("re8ch_dns_probe_responses%s %s" % (labels(dict(common, rcode=rcode)), count))
-    doh_metrics = (("attempts", "re8ch_doh_probe_attempts"), ("successes", "re8ch_doh_probe_successes"),
-                   ("failureRatio", "re8ch_doh_probe_failure_ratio"), ("p50Ms", "re8ch_doh_probe_latency_p50_milliseconds"),
-                   ("p95Ms", "re8ch_doh_probe_latency_p95_milliseconds"))
+            lines.append("advanced_fabric_dns_probe_responses%s %s" % (labels(dict(common, rcode=rcode)), count))
+    doh_metrics = (("attempts", "advanced_fabric_doh_probe_attempts"), ("successes", "advanced_fabric_doh_probe_successes"),
+                   ("failureRatio", "advanced_fabric_doh_probe_failure_ratio"), ("p50Ms", "advanced_fabric_doh_probe_latency_p50_milliseconds"),
+                   ("p95Ms", "advanced_fabric_doh_probe_latency_p95_milliseconds"))
     for entry in result.get("doh", []):
         common = {"source_node": NODE, "source_plane": PLANE, "endpoint": entry["url"], "query": entry["name"]}
         for field, metric in doh_metrics:
             if entry.get(field) is not None:
                 lines.append("%s%s %s" % (metric, labels(common), entry[field]))
         for rcode, count in entry.get("rcodes", {}).items():
-            lines.append("re8ch_doh_probe_responses%s %s" % (labels(dict(common, rcode=rcode)), count))
+            lines.append("advanced_fabric_doh_probe_responses%s %s" % (labels(dict(common, rcode=rcode)), count))
     return "\n".join(lines) + "\n"
 
 
@@ -356,8 +358,8 @@ def publish(result):
     safe_node = NODE.lower().replace("_", "-").replace(".", "-")
     name = "advanced-fabric-probe-%s-%s" % (safe_node, PLANE)
     obj = {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": name, "namespace": NAMESPACE,
-           "labels": {"app.kubernetes.io/name": "re8ch-advanced-fabric", "app.kubernetes.io/component":
-           "network-quality", "networking.re8ch.com/source-node": NODE, "networking.re8ch.com/source-plane": PLANE}},
+           "labels": {"app.kubernetes.io/name": "advanced-fabric", "app.kubernetes.io/component":
+           "network-quality", "networking.advfab.org/source-node": NODE, "networking.advfab.org/source-plane": PLANE}},
            "data": {"result.json": json.dumps(result, separators=(",", ":"))}}
     path = "/api/v1/namespaces/%s/configmaps/%s" % (NAMESPACE, name)
     try:

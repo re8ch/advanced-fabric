@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.26.0
+
+- Added the public, read-only observation API and status-based Service discovery.
+- Migrated the primary CRD group to `networking.advfab.org`; the legacy group is dual-published for this minor release.
+- Removed deployment-specific names, addresses, credentials references, and metrics endpoints from public defaults.
+- Updated the bundled Headlamp client to render only producer-supplied synchronized coordinates.
+
 ## 0.25.11
 
 - Commit source-identity transaction markers only after every nftables rule is

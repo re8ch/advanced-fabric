@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Observe-first RouterOSNode v1alpha2 reconciler.
 
-The controller owns only objects bearing the ``re8ch-v2:`` comment prefix. It
+The controller owns only objects bearing the ``advanced-fabric:`` comment prefix. It
 never deletes unowned RouterOS configuration. GuardedApply requires the exact
 SHA-256 transaction checksum published by Observe mode.
 """
@@ -25,7 +25,7 @@ KUBE_CONTEXT = ssl.create_default_context(cafile="/var/run/secrets/kubernetes.io
 ROS_CONTEXT = ssl.create_default_context()
 ROS_CONTEXT.check_hostname = False
 ROS_CONTEXT.verify_mode = ssl.CERT_NONE
-MANAGED = "re8ch-v2:"
+MANAGED = "advanced-fabric:"
 
 
 def kube(path, method="GET", body=None):
@@ -116,7 +116,7 @@ def desired(spec):
                           "comment": MANAGED + "accelerated-prefix:" + str(network(prefix))})
     filters, connections = [], []
     for peer in sorted(spec["peers"], key=lambda item: item["name"]):
-        chain = "re8ch-v2-" + peer["name"] + "-in"
+        chain = "advanced-fabric-" + peer["name"] + "-in"
         for sequence, prefix in enumerate(sorted(peer["acceptedPrefixes"]), start=10):
             filters.append({"chain": chain, "rule": f"if (dst=={network(prefix)}) {{ accept }}",
                             "comment": f"{MANAGED}{peer['name']}:accept:{sequence}"})
@@ -217,7 +217,7 @@ def observe(router, transaction):
 
 
 def patch_status(name, status):
-    kube(f"/apis/networking.re8ch.com/v1alpha2/routerosnodes/{name}/status", "PATCH", {"status": status})
+    kube(f"/apis/networking.advfab.org/v1alpha2/routerosnodes/{name}/status", "PATCH", {"status": status})
 
 
 def reconcile(obj):
@@ -245,7 +245,7 @@ def reconcile(obj):
 
 while True:
     try:
-        for item in kube("/apis/networking.re8ch.com/v1alpha2/routerosnodes").get("items", []):
+        for item in kube("/apis/networking.advfab.org/v1alpha2/routerosnodes").get("items", []):
             try:
                 reconcile(item)
             except Exception as error:

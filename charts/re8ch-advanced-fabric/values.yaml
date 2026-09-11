@@ -19,19 +19,23 @@ peer:
 nodes: {}
 routerOS:
   enabled: false
-  namespace: kube-system
-  credentialsSecret: {namespace: ops, name: mikrotik-routeros-admin}
+  namespace: advanced-fabric
+  credentialsSecret: {namespace: "", name: ""}
   nodeSelector: {}
 advancedFabric:
   enabled: false
+  instanceName: advanced-fabric
+  runtimeNamespace: advanced-fabric
+  apiGroup: networking.advfab.org
+  legacyApiGroup: networking.re8ch.com
   mode: observe-only
   applyEnabled: false
   observeDays: 7
   emergencyDisable: false
-  timezone: Asia/Shanghai
-  nativeRoutingCIDR: 10.42.0.0/16
-  acceleratedCIDR: 10.250.0.0/24
-  serviceCIDR: 10.251.0.0/24
+  timezone: UTC
+  nativeRoutingCIDR: ""
+  acceleratedCIDR: ""
+  serviceCIDR: ""
   controlPlaneApi:
     enabled: false
     vip: ""
@@ -54,15 +58,19 @@ advancedFabric:
     enabled: false
   controller:
     nodeSelector: {}
+    advisorURL: ""
+    image: python:3.13-alpine@sha256:540c7d91f98ff6880174c40e99067bf5941eb54d818a7a5e094d188b196a934d
   componentAPI:
     publishAssessments: true
     validitySeconds: 120
+    serviceName: advanced-fabric-observation-api
+    port: 8080
   # Compatibility control plane only: selected Ingress objects become native
   # Gateway API HTTPRoutes. No proxy or Traefik-compatible data plane is run.
   virtualIngress:
     enabled: false
     className: advanced-fabric
-    gateway: {name: re8ch-gateway-canary, namespace: kube-system, sectionName: http}
+    gateway: {name: "", namespace: "", sectionName: http}
     publicAddress: ""
     reconcileIntervalSeconds: 15
     adoption:
@@ -82,9 +90,9 @@ advancedFabric:
     kubernetesApiEndpoints: []
     clusterDomain: cluster.local
     ttlSeconds: 30
-    upstreams: [223.5.5.5, 119.29.29.29, 1.1.1.1]
+    upstreams: []
     conditionalForwarders: {}
-    service: {name: advanced-fabric-dns, clusterIP: 10.43.65.40}
+    service: {name: advanced-fabric-dns, clusterIP: ""}
     doh: {serviceName: advanced-fabric-doh, caSecretName: advanced-fabric-doh-tls}
     migration: {phase: shadow}
   networkQuality:
@@ -110,7 +118,7 @@ advancedFabric:
       shadowServiceName: advanced-fabric-dns
     doh:
       enabled: false
-      url: https://advanced-fabric-doh.kube-system.svc.cluster.local/dns-query
+      url: ""
       caSecretName: advanced-fabric-doh-tls
       maximumFailureRatio: 0.001
       maximumP95Ms: 100
@@ -132,7 +140,7 @@ mihomoGateway:
     repository: metacubex/mihomo
     tag: v1.19.29@sha256:e1d7dadaa9368a52d420d65007e0e0d87cb148d292faa67326eda3fef5757f59
     pullPolicy: IfNotPresent
-  capabilityLabel: networking.re8ch.com/mihomo-node
+  capabilityLabel: networking.advfab.org/mihomo-node
   capabilityValue: enabled
   existingPathsSecret: ""
   service:

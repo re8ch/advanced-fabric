@@ -125,7 +125,7 @@ The component publishes one cluster-scoped assessment per active Node. This is
 the supported integration boundary for other services.
 
 ```yaml
-apiVersion: networking.re8ch.com/v1alpha1
+apiVersion: networking.advfab.org/v1alpha1
 kind: NetworkPathAssessment
 metadata:
   name: node-r640
@@ -217,7 +217,7 @@ therefore does not remove the component's ability to describe that degradation.
 ## Installation verification
 
 ```sh
-helm template advanced-fabric oci://ghcr.io/re8ch/charts/re8ch-advanced-fabric \
+helm template advanced-fabric oci://ghcr.io/re8ch/charts/advanced-fabric \
   --version 0.17.1 --set advancedFabric.enabled=true \
   --set advancedFabric.networkQuality.enabled=true >/tmp/advanced-fabric.yaml
 

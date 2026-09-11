@@ -19,8 +19,8 @@
           "type": "object",
           "required": ["namespace", "name"],
           "properties": {
-            "namespace": {"type": "string", "minLength": 1},
-            "name": {"type": "string", "minLength": 1}
+            "namespace": {"type": "string"},
+            "name": {"type": "string"}
           }
         },
         "nodeSelector": {"type": "object"}
@@ -31,20 +31,26 @@
       "required": ["enabled", "mode", "applyEnabled", "observeDays", "emergencyDisable", "nativeRoutingCIDR", "acceleratedCIDR", "serviceCIDR", "dns", "nodes"],
       "properties": {
         "enabled": {"type": "boolean"},
+        "instanceName": {"type": "string", "minLength": 1},
+        "runtimeNamespace": {"type": "string", "minLength": 1},
+        "apiGroup": {"const": "networking.advfab.org"},
+        "legacyApiGroup": {"type": "string"},
         "mode": {"enum": ["observe-only", "guarded-apply"]},
         "applyEnabled": {"type": "boolean"},
         "observeDays": {"type": "integer", "minimum": 0},
         "emergencyDisable": {"type": "boolean"},
-        "timezone": {"type": "string", "const": "Asia/Shanghai"},
-        "nativeRoutingCIDR": {"type": "string", "const": "10.42.0.0/16"},
-        "acceleratedCIDR": {"type": "string", "const": "10.250.0.0/24"},
-        "serviceCIDR": {"type": "string", "const": "10.251.0.0/24"},
+        "timezone": {"type": "string", "minLength": 1},
+        "nativeRoutingCIDR": {"type": "string"},
+        "acceleratedCIDR": {"type": "string"},
+        "serviceCIDR": {"type": "string"},
         "componentAPI": {
           "type": "object",
-          "required": ["publishAssessments", "validitySeconds"],
+          "required": ["publishAssessments", "validitySeconds", "serviceName", "port"],
           "properties": {
             "publishAssessments": {"type": "boolean"},
-            "validitySeconds": {"type": "integer", "minimum": 30, "maximum": 3600}
+            "validitySeconds": {"type": "integer", "minimum": 30, "maximum": 3600},
+            "serviceName": {"type": "string", "minLength": 1},
+            "port": {"type": "integer", "minimum": 1, "maximum": 65535}
           }
         },
         "virtualIngress": {
@@ -57,8 +63,8 @@
               "type": "object",
               "required": ["name", "namespace", "sectionName"],
               "properties": {
-                "name": {"type": "string", "minLength": 1},
-                "namespace": {"type": "string", "minLength": 1},
+                "name": {"type": "string"},
+                "namespace": {"type": "string"},
                 "sectionName": {"type": "string", "minLength": 1}
               }
             },
@@ -85,14 +91,14 @@
             "pdbMinAvailable": {"type": "integer", "minimum": 1},
             "clusterDomain": {"type": "string", "const": "cluster.local"},
             "ttlSeconds": {"type": "integer", "minimum": 1, "maximum": 300},
-            "upstreams": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+            "upstreams": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
             "conditionalForwarders": {"type": "object", "additionalProperties": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}},
             "service": {
               "type": "object",
               "required": ["name", "clusterIP"],
               "properties": {
                 "name": {"const": "advanced-fabric-dns"},
-                "clusterIP": {"const": "10.43.65.40"}
+                "clusterIP": {"type": "string"}
               }
             },
             "doh": {
@@ -143,7 +149,7 @@
               "required": ["enabled", "url", "caSecretName", "maximumFailureRatio", "maximumP95Ms"],
               "properties": {
                 "enabled": {"type": "boolean"},
-                "url": {"type": "string", "pattern": "^https://[a-z0-9.-]+/dns-query$"},
+                "url": {"type": "string", "pattern": "^$|^https://[a-z0-9.-]+/dns-query$"},
                 "caSecretName": {"type": "string", "minLength": 1},
                 "maximumFailureRatio": {"type": "number", "minimum": 0, "maximum": 1},
                 "maximumP95Ms": {"type": "number", "minimum": 1}
