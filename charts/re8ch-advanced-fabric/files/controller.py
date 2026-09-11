@@ -902,6 +902,8 @@ def reconcile():
             continue
     measurement_state = measurement_index(probe_configmaps, set(node_index),
                                           int(quality_standard.get("freshnessSeconds", 120)), time.time())
+    traffic_state = service_traffic_index(
+        traffic_configmaps, int(quality_standard.get("freshnessSeconds", 120)), time.time())
     parsed_measurements = {}
     for item in measurement_configmaps:
         try:
@@ -955,7 +957,7 @@ def reconcile():
               "activeNodes": sorted(node_index), "retiredInventoryNodes": retired_nodes,
               "evidencePlanner": {"generation": plan["generation"], "tasks": len(plan["tasks"]),
                                   "pendingTasks": len(plan["pendingTaskIds"])},
-              "serviceTraffic": {"observedServices": len(service_snapshots),
+              "serviceTraffic": {"observedServices": len(traffic_state),
                                  "measurementWindows": sum(len(items) for items in traffic_state.values())},
               "inventoryIncomplete": incomplete, "ineligibleSpines": unavailable,
               "controlPlaneApi": {"enabled": bool(control_plane_api.get("enabled")),
