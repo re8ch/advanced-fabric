@@ -28,7 +28,8 @@ def test_source_identity_rules_are_checksum_bound_to_host_transaction():
 
 def test_host_agent_applies_source_identity_after_routes_and_before_vip_health():
     script = (ROOT / "charts/re8ch-advanced-fabric/files/host-agent.sh").read_text(encoding="utf-8")
-    assert "iptables -t nat -C POSTROUTING" in script
-    assert "--to-source" in script
+    assert "nft add chain ip" in script
+    assert "snat to" in script
+    assert 'transaction.checksum' in script
     apply = script.split('if [ "${apply}" != true ]; then', 1)[1].split("if [ \"${guarded}\"", 1)[0]
     assert apply.index("manage_fallback_routes apply") < apply.index("manage_source_identity_rules apply")

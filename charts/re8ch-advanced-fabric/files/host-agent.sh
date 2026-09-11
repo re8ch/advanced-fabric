@@ -159,15 +159,21 @@ manage_forward_rules() {
 }
 manage_source_identity_rules() {
   action=$1
+  table=advanced_fabric_source_identity
+  checksum=$(jq -r '.transaction.checksum' "${NODE_FILE}")
+  if [ "${action}" != apply ]; then
+    host nft delete table ip "${table}" 2>/dev/null || true
+    return
+  fi
+  if host nft list table ip "${table}" 2>/dev/null | grep -Fq "advanced-fabric:${checksum}"; then return; fi
+  host nft delete table ip "${table}" 2>/dev/null || true
+  host nft add table ip "${table}"
+  host nft add chain ip "${table}" postrouting '{ type nat hook postrouting priority srcnat; policy accept; }'
   transaction | jq -c '.sourceIdentityRules[]?' | while read -r rule; do
     source=$(printf '%s' "${rule}" | jq -r '.source'); destination=$(printf '%s' "${rule}" | jq -r '.destination')
     protocol=$(printf '%s' "${rule}" | jq -r '.protocol'); port=$(printf '%s' "${rule}" | jq -r '.port')
-    if [ "${action}" = apply ]; then
-      host iptables -t nat -C POSTROUTING -d "${destination}" -p "${protocol}" --dport "${port}" -j SNAT --to-source "${source}" 2>/dev/null || \
-        host iptables -t nat -A POSTROUTING -d "${destination}" -p "${protocol}" --dport "${port}" -j SNAT --to-source "${source}"
-    else
-      host iptables -t nat -D POSTROUTING -d "${destination}" -p "${protocol}" --dport "${port}" -j SNAT --to-source "${source}" 2>/dev/null || true
-    fi
+    host nft add rule ip "${table}" postrouting ip daddr "${destination}" "${protocol}" dport "${port}" \
+      counter snat to "${source}" comment "advanced-fabric:${checksum}"
   done
 }
 manage_frr_import_prefixes() {
