@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.25.2
+
+- Scope guarded control-plane VIP apply safety to the nodes that announce the
+  VIP or receive its host transaction. An unrelated unavailable spine remains
+  visible as degraded evidence but no longer blocks healthy API ECMP origins.
+- Reject control-plane node operations that reference undeclared inventory.
+
 ## 0.25.1
 
 - Treat FRR `0.0.0.0` and `::` on-link/self next-hop sentinels as
