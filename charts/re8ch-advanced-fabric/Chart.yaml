@@ -2,8 +2,8 @@ apiVersion: v2
 name: advanced-fabric
 description: Public, observe-first Cilium and FRR fabric control and network evidence API
 type: application
-version: 0.26.0
-appVersion: "0.26.0"
+version: 0.26.1
+appVersion: "0.26.1"
 kubeVersion: ">=1.30.0-0"
 home: https://github.com/re8ch/advanced-fabric
 sources:
@@ -21,6 +21,8 @@ annotations:
   artifacthub.io/operatorCapabilities: deep insights
   artifacthub.io/containsSecurityUpdates: "false"
   artifacthub.io/changes: |
+    - kind: fixed
+      description: Project the observed effective datapath mode into the producer-owned d_mode scalar so synchronized R/D/C samples can close without consumer fallback data.
     - kind: added
       description: Publish the storage-neutral Advanced Fabric observation API and advertise it through AdvancedFabric status for public UI consumers.
     - kind: changed

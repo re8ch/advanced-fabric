@@ -291,7 +291,7 @@ def service_traffic_value(windows):
 
 TRACKING_UNITS = {
     "x_nh": "next-hops", "p_route": "routes", "w_ecmp": "paths", "m_route": "paths",
-    "n_path_change": "changes", "d_mode": "interfaces", "a_reach": "ratio", "l_path": "ratio",
+    "n_path_change": "changes", "d_mode": "mode-index", "a_reach": "ratio", "l_path": "ratio",
     "t_rtt": "ms", "b_rx": "bytes", "b_est": "peers", "n_peer": "peers", "n_adv": "prefixes",
     "n_recv": "prefixes", "u_bgp": "updates", "w_bgp": "withdrawals", "t_conv": "seconds",
     "lambda_flap": "changes/second", "delta_ribfib": "changes", "n_nh": "next-hops",
@@ -306,6 +306,12 @@ def tracking_value(symbol, value, now=None):
     now = time.time() if now is None else now
     if isinstance(value, (int, float)):
         return float(value)
+    if symbol == "d_mode":
+        # A producer-owned ordinal for the effective datapath encapsulation.
+        # Keep the raw mode object in measurements; consumers only receive this
+        # stable scalar and must not infer or repair a missing mode themselves.
+        mode = str((value or {}).get("mode", "")).strip().lower()
+        return {"tunnel": 0.0, "hybrid": 0.5, "native": 1.0}.get(mode)
     if symbol in ("x_nh", "p_route", "n_if", "n_tun", "n_gw", "n_asn", "g_dep"):
         return float(len(value or []))
     if symbol in ("w_ecmp", "m_route"):
