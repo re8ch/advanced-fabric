@@ -557,7 +557,8 @@ def path_evidence_document(node, node_ready, status, measurements, validity_seco
     return document, result
 
 
-def structural_observations(nodes, measurement_maps, previous=None, history_limit=96):
+def structural_observations(nodes, measurement_maps, previous=None, history_limit=96,
+                            max_payload_bytes=800000):
     output = {}
     previous_nodes = (previous or {}).get("nodes", {})
     for node in nodes:
@@ -582,8 +583,18 @@ def structural_observations(nodes, measurement_maps, previous=None, history_limi
                                 "trackingGate": payload.get("trackingGate", {}),
                                 "latestEpisode": payload.get("latestEpisode"), "history": history[-history_limit:],
                                 "measurementRef": "advanced-fabric-measurement-" + node["name"].lower().replace("_", "-").replace(".", "-")}
-    return {"schemaVersion": "networking.re8ch.com/structural-observation-v1alpha2",
-            "compatibleSchemaVersions": ["networking.re8ch.com/structural-observation-v1alpha1"], "nodes": output}
+    result = {"schemaVersion": "networking.re8ch.com/structural-observation-v1alpha2",
+              "compatibleSchemaVersions": ["networking.re8ch.com/structural-observation-v1alpha1"], "nodes": output}
+    # ConfigMaps are limited to 1 MiB and the API request carries additional
+    # metadata and JSON escaping. Retain every node's latest point, then evict
+    # the oldest points from the longest histories until a safe payload budget
+    # is reached. This keeps collection forward-convergent as nodes are added.
+    while len(json.dumps(result, sort_keys=True, separators=(",", ":")).encode()) > max_payload_bytes:
+        candidates = [item for item in output.values() if len(item["history"]) > 1]
+        if not candidates:
+            break
+        max(candidates, key=lambda item: len(item["history"]))["history"].pop(0)
+    return result
 
 
 def discovered_interventions(fabric, statuses, previous, now_text):
