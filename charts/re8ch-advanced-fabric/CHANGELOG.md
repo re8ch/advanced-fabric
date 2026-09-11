@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.26.2
+
+- Prefer complete synchronized relationship slices during deterministic
+  `maxPoints` downsampling, then use partial slices only to fill remaining slots.
+- Keep partial evidence and missing reasons intact while ensuring valid closed
+  R/D/C curves are not displaced by older incomplete history.
+
 ## 0.26.1
 
 - Project observed `datapath.mode` into a documented producer-owned `d_mode`
