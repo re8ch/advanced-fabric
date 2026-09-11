@@ -743,6 +743,30 @@ def make_api_transaction(node, api, operations, guarded):
     return {"algorithm": "sha256", "checksum": hashlib.sha256(canonical.encode()).hexdigest(), "spec": spec}
 
 
+def control_plane_apply_safety(control_plane_api, node_index, ready, quality_gate_ready):
+    """Gate API VIP mutations on the nodes participating in that transaction.
+
+    An unrelated spine may be unavailable without making a guarded control-plane
+    VIP rollout unsafe.  Conversely, every node that may announce the VIP or
+    receive a host transaction must be present, inventoried and Ready.
+    """
+    guarded = set(control_plane_api.get("guardedNodes", []))
+    operation_nodes = {item.get("name") for item in control_plane_api.get("nodeOperations", [])}
+    participants = sorted((guarded | operation_nodes) - {None, ""})
+    blockers = []
+    for name in participants:
+        node = node_index.get(name)
+        if node is None:
+            blockers.append(name + ":inactive")
+        elif not node.get("inventoryComplete", False):
+            blockers.append(name + ":inventory-incomplete")
+        elif not ready.get(name, False):
+            blockers.append(name + ":not-ready")
+    if not quality_gate_ready:
+        blockers.append("network-quality")
+    return not blockers, blockers
+
+
 def reconcile():
     fabric = request("GET", "/apis/networking.re8ch.com/v1alpha1/advancedfabrics/re8ch")
     spec = fabric["spec"]
@@ -781,6 +805,9 @@ def reconcile():
     unknown_guarded_nodes = sorted(configured_guarded_api_nodes - configured_eligible_api_nodes)
     if unknown_guarded_nodes:
         raise ValueError(f"guardedNodes must be eligible: {','.join(unknown_guarded_nodes)}")
+    unknown_operation_nodes = sorted(set(api_operations) - set(declared_index))
+    if unknown_operation_nodes:
+        raise ValueError(f"nodeOperations references unknown nodes: {','.join(unknown_operation_nodes)}")
     incomplete = [node["name"] for node in active_nodes if not node.get("inventoryComplete")]
     unavailable = [node["name"] for node in active_nodes if node["role"] == "spine" and
                    (not node.get("inventoryComplete") or not ready.get(node["name"], False))]
@@ -788,9 +815,8 @@ def reconcile():
         "networkReady": True, "dnsReady": True, "dohReady": True, "disabled": True}
     quality_gate_ready = (not quality_enforced or
                           (quality["networkReady"] and quality["dnsReady"] and quality["dohReady"]))
-    api_apply_safe = (all(ready.get(name, False) and node_index[name].get("inventoryComplete", False)
-                          for name in guarded_api_nodes) and not incomplete and not unavailable and
-                      quality_gate_ready)
+    api_apply_safe, api_apply_blockers = control_plane_apply_safety(
+        control_plane_api, node_index, ready, quality_gate_ready)
     effective_apply = (bool(spec.get("applyEnabled")) and not bool(spec.get("emergencyDisable"))
                        and api_apply_safe)
     rankings = {name: {profile: rank_paths(profile, node, advisor_edges, advisor_costs, ready)
@@ -933,11 +959,11 @@ def reconcile():
                                        "%s measurements; %s failed" % (quality.get("dnsMeasurements", 0), quality.get("failedDnsCount", 0))),
                              condition("DoHQualityReady", quality["dohReady"], "DoHMeasurementsEvaluated",
                                        "%s measurements; %s failed" % (quality.get("dohMeasurements", 0), quality.get("failedDohCount", 0))),
-                             condition("ApplySafe", not incomplete and not unavailable and not spec.get("emergencyDisable") and
-                                       quality_gate_ready, "SafetyGatesEvaluated",
-                                       ",".join(sorted(set(incomplete + unavailable))) or
+                             condition("ApplySafe", api_apply_safe and not spec.get("emergencyDisable"),
+                                       "SafetyGatesEvaluated",
+                                       ",".join(api_apply_blockers) or
                                        ("measurement-only; quality standard is not enforced" if quality_enabled and not quality_enforced else
-                                        "all gates passed" if quality_gate_ready else "network quality gate failed"))],
+                                        "control-plane transaction participants passed"))],
               "lastEvaluationTime": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     request("PATCH", "/apis/networking.re8ch.com/v1alpha1/advancedfabrics/re8ch/status", {"status": status})
 

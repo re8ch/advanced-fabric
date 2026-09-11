@@ -2,8 +2,8 @@ apiVersion: v2
 name: re8ch-advanced-fabric
 description: RE8CH native-routing, FRR spine/leaf fabric, service VIPs, and network economics
 type: application
-version: 0.25.1
-appVersion: "0.25.1"
+version: 0.25.2
+appVersion: "0.25.2"
 kubeVersion: ">=1.30.0-0"
 home: https://github.com/re8ch/advanced-fabric
 sources:
@@ -21,6 +21,8 @@ annotations:
   artifacthub.io/operatorCapabilities: deep insights
   artifacthub.io/containsSecurityUpdates: "false"
   artifacthub.io/changes: |
+    - kind: fixed
+      description: Scope guarded control-plane VIP safety to participating transaction nodes so unrelated unavailable spines do not block healthy ECMP convergence.
     - kind: fixed
       description: Exclude FRR on-link next-hop sentinels from active-probe completeness so fully measured nodes can close n_nh.
     - kind: fixed
