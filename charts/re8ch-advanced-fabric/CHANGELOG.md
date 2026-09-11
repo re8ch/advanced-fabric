@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.25.10
+
+- Allow source-identity transactions to SNAT an entire destination CIDR when
+  protocol and port are omitted, enabling stable node identity across ECMP
+  transit for Kubernetes PodCIDRs.
+
 ## 0.25.3
 
 - Gate a control-plane VIP rollout only on its guarded origin nodes. Offline

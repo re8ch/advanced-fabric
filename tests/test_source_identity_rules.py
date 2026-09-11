@@ -34,3 +34,11 @@ def test_host_agent_applies_source_identity_after_routes_and_before_vip_health()
     assert 'marker="tx_' in script
     apply = script.split('if [ "${apply}" != true ]; then', 1)[1].split("if [ \"${guarded}\"", 1)[0]
     assert apply.index("manage_fallback_routes apply") < apply.index("manage_source_identity_rules apply")
+
+
+def test_source_identity_rules_support_cidr_wide_protocol_agnostic_snat():
+    script = (ROOT / "charts/re8ch-advanced-fabric/files/host-agent.sh").read_text(encoding="utf-8")
+    assert "'.protocol // empty'" in script
+    assert "'.port // empty'" in script
+    assert 'if [ -z "${protocol}" ]' in script
+    assert 'ip daddr "${destination}" counter snat to "${source}"' in script

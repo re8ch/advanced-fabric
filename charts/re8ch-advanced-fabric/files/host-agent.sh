@@ -173,9 +173,15 @@ manage_source_identity_rules() {
   host nft add chain ip "${table}" "${marker}"
   transaction | jq -c '.sourceIdentityRules[]?' | while read -r rule; do
     source=$(printf '%s' "${rule}" | jq -r '.source'); destination=$(printf '%s' "${rule}" | jq -r '.destination')
-    protocol=$(printf '%s' "${rule}" | jq -r '.protocol'); port=$(printf '%s' "${rule}" | jq -r '.port')
-    host nft add rule ip "${table}" postrouting ip daddr "${destination}" "${protocol}" dport "${port}" \
-      counter snat to "${source}"
+    protocol=$(printf '%s' "${rule}" | jq -r '.protocol // empty'); port=$(printf '%s' "${rule}" | jq -r '.port // empty')
+    if [ -z "${protocol}" ]; then
+      host nft add rule ip "${table}" postrouting ip daddr "${destination}" counter snat to "${source}"
+    elif [ -z "${port}" ]; then
+      host nft add rule ip "${table}" postrouting ip daddr "${destination}" "${protocol}" counter snat to "${source}"
+    else
+      host nft add rule ip "${table}" postrouting ip daddr "${destination}" "${protocol}" dport "${port}" \
+        counter snat to "${source}"
+    fi
   done
 }
 manage_frr_import_prefixes() {
