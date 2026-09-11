@@ -29,6 +29,15 @@ def test_unrelated_unavailable_spine_does_not_block_control_plane_transaction():
     assert blockers == []
 
 
+def test_offline_non_origin_transaction_converges_when_node_returns():
+    nodes = {name: {"inventoryComplete": True} for name in ("a1", "b1", "r640", "edge")}
+    safe, blockers = control_plane_apply_safety(
+        api(operations=("a1", "b1", "r640", "edge")), nodes,
+        {"a1": True, "b1": True, "r640": True, "edge": False}, True)
+    assert safe
+    assert blockers == []
+
+
 def test_participant_must_be_active_inventoried_and_ready():
     nodes = {"a1": {"inventoryComplete": True}, "b1": {"inventoryComplete": False}}
     safe, blockers = control_plane_apply_safety(

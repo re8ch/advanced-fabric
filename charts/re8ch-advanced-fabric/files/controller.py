@@ -746,13 +746,12 @@ def make_api_transaction(node, api, operations, guarded):
 def control_plane_apply_safety(control_plane_api, node_index, ready, quality_gate_ready):
     """Gate API VIP mutations on the nodes participating in that transaction.
 
-    An unrelated spine may be unavailable without making a guarded control-plane
-    VIP rollout unsafe.  Conversely, every node that may announce the VIP or
-    receive a host transaction must be present, inventoried and Ready.
+    An unrelated spine or non-origin host transaction may be unavailable without
+    making a guarded control-plane VIP rollout unsafe. Offline consumers apply
+    their transaction when they return; only VIP origins gate publication.
     """
     guarded = set(control_plane_api.get("guardedNodes", []))
-    operation_nodes = {item.get("name") for item in control_plane_api.get("nodeOperations", [])}
-    participants = sorted((guarded | operation_nodes) - {None, ""})
+    participants = sorted(guarded - {None, ""})
     blockers = []
     for name in participants:
         node = node_index.get(name)
