@@ -170,19 +170,19 @@ manage_source_identity_rules() {
   host nft delete table ip "${table}" 2>/dev/null || true
   host nft add table ip "${table}"
   host nft add chain ip "${table}" postrouting '{ type nat hook postrouting priority srcnat; policy accept; }'
-  host nft add chain ip "${table}" "${marker}"
   transaction | jq -c '.sourceIdentityRules[]?' | while read -r rule; do
     source=$(printf '%s' "${rule}" | jq -r '.source'); destination=$(printf '%s' "${rule}" | jq -r '.destination')
     protocol=$(printf '%s' "${rule}" | jq -r '.protocol // empty'); port=$(printf '%s' "${rule}" | jq -r '.port // empty')
     if [ -z "${protocol}" ]; then
-      host nft add rule ip "${table}" postrouting ip daddr "${destination}" counter snat to "${source}"
+      host nft add rule ip "${table}" postrouting ip daddr "${destination}" counter snat to "${source}" || exit 1
     elif [ -z "${port}" ]; then
-      host nft add rule ip "${table}" postrouting ip daddr "${destination}" "${protocol}" counter snat to "${source}"
+      host nft add rule ip "${table}" postrouting ip daddr "${destination}" "${protocol}" counter snat to "${source}" || exit 1
     else
       host nft add rule ip "${table}" postrouting ip daddr "${destination}" "${protocol}" dport "${port}" \
-        counter snat to "${source}"
+        counter snat to "${source}" || exit 1
     fi
-  done
+  done || return 1
+  host nft add chain ip "${table}" "${marker}"
 }
 manage_frr_import_prefixes() {
   vip=$(transaction | jq -r '.vip')
