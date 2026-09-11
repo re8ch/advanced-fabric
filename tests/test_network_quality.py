@@ -103,6 +103,24 @@ class NetworkQualityTest(unittest.TestCase):
         self.assertEqual(node["latent"]["Q"]["missingSymbols"], ["a_reach"])
         self.assertFalse(node["trackingReady"])
         self.assertEqual(node["history"][0]["values"]["l_path"]["value"], 0)
+
+    def test_structural_history_stays_within_configmap_payload_budget(self):
+        history = [{"observedAt": f"2026-09-09T00:{minute:02d}:00Z",
+                    "trackingReady": True, "values": {"sample": "x" * 300}}
+                   for minute in range(20)]
+        previous = {"nodes": {name: {"history": list(history)} for name in ("a", "b")}}
+        payloads = {name: {"observedAt": "2026-09-09T01:00:00Z", "trackingReady": True,
+                           "trackingValues": {"sample": "latest"}, "measurements": []}
+                    for name in ("a", "b")}
+
+        result = controller["structural_observations"](
+            [{"name": "a"}, {"name": "b"}], payloads, previous, max_payload_bytes=5000)
+
+        encoded = json.dumps(result, sort_keys=True, separators=(",", ":")).encode()
+        self.assertLessEqual(len(encoded), 5000)
+        self.assertTrue(all(node["history"][-1]["values"]["sample"] == "latest"
+                            for node in result["nodes"].values()))
+
     def test_service_osi_uses_measured_inflow_and_exposes_numeric_calculation(self):
         now = 1_800_000_000
         observed = datetime.datetime.fromtimestamp(now, datetime.timezone.utc).isoformat()
