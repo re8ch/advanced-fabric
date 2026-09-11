@@ -22,8 +22,7 @@ jobs:
         run: echo "$GITHUB_TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - run: helm push dist/re8ch-advanced-fabric-*.tgz oci://ghcr.io/re8ch/charts
+      - run: helm push dist/advanced-fabric-*.tgz oci://ghcr.io/re8ch/charts
       - uses: softprops/action-gh-release@v2
         with:
-          files: dist/re8ch-advanced-fabric-*.tgz
-
+          files: dist/advanced-fabric-*.tgz

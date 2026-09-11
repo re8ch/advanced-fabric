@@ -22,6 +22,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Publish repository metadata
         run: |
-          oras push ghcr.io/re8ch/charts/re8ch-advanced-fabric:artifacthub.io \
+          oras push ghcr.io/re8ch/charts/advanced-fabric:artifacthub.io \
             --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
             artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
