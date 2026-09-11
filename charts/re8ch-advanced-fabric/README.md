@@ -16,7 +16,7 @@ interfaces, FRR/BGP/BFD health and kernel ECMP routes. Enable it with
 
 ```sh
 helm upgrade --install re8ch-network-fabric \
-  oci://ghcr.io/re8ch/charts/re8ch-advanced-fabric \
+  oci://ghcr.io/re8ch/charts/advanced-fabric \
   --version 0.18.0 \
   --namespace advanced-fabric --create-namespace
 ```
@@ -38,13 +38,13 @@ Exact paths, and numeric Service ports. Common Traefik entrypoint and TLS flags
 are accepted as migration metadata. Middleware annotations, hostless/default
 backends, named ports and `ImplementationSpecific` paths are rejected and
 reported on the Ingress annotation
-`networking.re8ch.com/virtual-ingress-status`. An Ingress becomes `Ready` only
+`networking.advfab.org/virtual-ingress-status`. An Ingress becomes `Ready` only
 after the Gateway reports both `Accepted=True` and `ResolvedRefs=True` for its
 generated HTTPRoute.
 
 ## RouterOS eBGP boundary
 
-`RouterOSNode.networking.re8ch.com/v1alpha2` models RouterOS as an acceleration
+`RouterOSNode.networking.advfab.org/v1alpha2` models RouterOS as an acceleration
 boundary rather than a default-route authority. Cluster peers import into a
 dedicated FIB, public VIPs have an explicit high-distance LAN fallback, and
 protected infrastructure prefixes are rejected before a transaction is
@@ -114,6 +114,6 @@ upgrades and scaling independent of historical DNS objects.
 ## Development
 
 ```sh
-helm lint charts/re8ch-advanced-fabric
-helm template test charts/re8ch-advanced-fabric >/dev/null
+helm lint charts/advanced-fabric
+helm template test charts/advanced-fabric >/dev/null
 ```

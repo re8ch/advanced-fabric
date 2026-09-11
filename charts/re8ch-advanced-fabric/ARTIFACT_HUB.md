@@ -5,14 +5,14 @@ public OCI repository and register that exact repository in Artifact Hub:
 
 ```sh
 helm package . --destination dist
-helm push dist/re8ch-advanced-fabric-0.3.0.tgz \
+helm push dist/advanced-fabric-0.3.0.tgz \
   oci://ghcr.io/re8ch/charts
 ```
 
 The resulting Artifact Hub repository URL is:
 
 ```text
-oci://ghcr.io/re8ch/charts/re8ch-advanced-fabric
+oci://ghcr.io/re8ch/charts/advanced-fabric
 ```
 
 Artifact Hub requires one repository registration per OCI chart. After the
@@ -29,7 +29,7 @@ owners:
 Publish that metadata with the official OCI media types and special tag:
 
 ```sh
-oras push ghcr.io/re8ch/charts/re8ch-advanced-fabric:artifacthub.io \
+oras push ghcr.io/re8ch/charts/advanced-fabric:artifacthub.io \
   --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
   artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
 ```

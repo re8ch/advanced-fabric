@@ -75,7 +75,7 @@ publish_status() {
     --argjson routes "$routes" --argjson nexthops "$nexthops" --argjson links "$links" --argjson nextHopProbes "$next_hop_probes" \
     --argjson bgpRib "$bgp_rib" --argjson peers "$peer_routes" --argjson rankings "$rankings" \
     --argjson controlPlaneApi "$api_config" --argjson controlPlaneApiHealthy "$api_healthy" --argjson dynamics "$dynamics" \
-    '{schemaVersion:"networking.re8ch.com/v1alpha1",node:$node,observedAt:$observedAt,
+    '{schemaVersion:"networking.advfab.org/v1alpha1",node:$node,observedAt:$observedAt,
       datapath:{mode:$datapath,tunnelInterfaces:$tunnels},frr:{state:$frr,bgp:$bgp,neighbors:$neighbors,bfd:$bfd},
       routes:$routes,nexthops:$nexthops,links:$links,nextHopProbes:$nextHopProbes,ecmpRoutes:$ecmp,bgpRib:$bgpRib,peerRoutes:$peers,pathRankings:$rankings,
       controlPlaneApi:($controlPlaneApi + {localHealthy:$controlPlaneApiHealthy}),routeDynamics:$dynamics}')

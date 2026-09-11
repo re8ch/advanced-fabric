@@ -27,6 +27,8 @@ controller = load_functions(ROOT / "charts/re8ch-advanced-fabric/files/controlle
                              "hashlib": hashlib,
                              "MEASUREMENT_DEFINITIONS": {"path-quality-v1": {}, "temporal-stability-v1": {},
                                                          "failure-domain-graph-v1": {}},
+                             "API_GROUP": "networking.advfab.org", "INSTANCE_NAME": "advanced-fabric",
+                             "MANAGED_BY": "advanced-fabric",
                              "TRIANGLE_DEFINITIONS": (
                                  ("redundancy-independence-churn", ("R", "D", "C"), ("R->D", "D->C", "C->R")),
                                  ("responsiveness-inertia-quality", ("K", "H", "Q"), ("K->H", "H->Q", "Q->K")),
@@ -56,7 +58,7 @@ class NetworkQualityTest(unittest.TestCase):
         }
         document, status = controller["path_evidence_document"](
             {"name": "node-a"}, True, {"routeDynamics": {"startedAt": observed}}, measurements, 120, now)
-        self.assertEqual(document["apiVersion"], "networking.re8ch.com/v1alpha2")
+        self.assertEqual(document["apiVersion"], "networking.advfab.org/v1alpha2")
         self.assertEqual(status["state"], "Ready")
         self.assertTrue(status["pathEvidence"]["reachable"])
         self.assertNotIn("dimensions", status)
@@ -80,9 +82,9 @@ class NetworkQualityTest(unittest.TestCase):
 
     def test_discovered_change_remains_pending_windows(self):
         fingerprints, events = controller["discovered_interventions"](
-            {"metadata": {"generation": 2}}, {}, {"advancedfabric/re8ch": "1"}, "2027-01-15T08:00:00Z")
-        self.assertEqual(len(fingerprints["advancedfabric/re8ch"]), 64)
-        self.assertEqual(events[0]["spec"]["fingerprint"], fingerprints["advancedfabric/re8ch"])
+            {"metadata": {"generation": 2}}, {}, {"advancedfabric/advanced-fabric": "1"}, "2027-01-15T08:00:00Z")
+        self.assertEqual(len(fingerprints["advancedfabric/advanced-fabric"]), 64)
+        self.assertEqual(events[0]["spec"]["fingerprint"], fingerprints["advancedfabric/advanced-fabric"])
         self.assertEqual(events[0]["status"]["identificationState"], "PendingWindows")
 
     def test_default_triangles_are_open_without_identified_edges(self):
@@ -154,7 +156,7 @@ class NetworkQualityTest(unittest.TestCase):
 
     def test_component_assessment_uses_only_formal_state(self):
         legacy = {"observedAt": "2027-01-15T08:00:00Z", "o": .9, "s": .8, "i": .7}
-        formal = {"modelVersion": "networking.re8ch.com/measurement-model-v1alpha1",
+        formal = {"modelVersion": "networking.advfab.org/measurement-model-v1alpha1",
                   "observedAt": "2027-01-15T08:00:10Z", "o": .8, "s": None, "i": None,
                   "confidenceO": .7, "confidenceS": 0, "confidenceI": 0}
         result = controller["assessment_document"]({"name": "node-a"}, [legacy, formal],
@@ -165,7 +167,7 @@ class NetworkQualityTest(unittest.TestCase):
         self.assertEqual(result["status"]["confidence"]["optimality"], .7)
 
     def test_component_assessment_marks_expired_state_stale(self):
-        formal = {"modelVersion": "networking.re8ch.com/measurement-model-v1alpha1",
+        formal = {"modelVersion": "networking.advfab.org/measurement-model-v1alpha1",
                   "observedAt": "2027-01-15T08:00:00Z", "o": 1, "s": 1, "i": 1}
         result = controller["assessment_document"]({"name": "node-a"}, [formal], {}, 30, 1_800_000_100)
         self.assertEqual(result["status"]["state"], "Stale")
@@ -322,9 +324,9 @@ class NetworkQualityTest(unittest.TestCase):
             "name": "kubernetes.default.svc.cluster.local", "attempts": 3, "successes": 3,
             "failureRatio": 0, "p50Ms": 4, "p95Ms": 5, "rcodes": {"0": 3}}]}
         rendered = probe["prometheus_text"](result)
-        self.assertIn('re8ch_network_path_loss_ratio{source_node="a",source_plane="host",target_address="10.42.2.3",target_node="b",target_plane="pod"} 0.3333', rendered)
-        self.assertIn('re8ch_dns_probe_responses{protocol="udp",query="kubernetes.default.svc.cluster.local",rcode="0",server="10.43.0.10",server_role="stable",source_node="a",source_plane="host"}', rendered)
-        self.assertIn("re8ch_doh_probe_latency_p95_milliseconds", rendered)
+        self.assertIn('advanced_fabric_path_loss_ratio{source_node="a",source_plane="host",target_address="10.42.2.3",target_node="b",target_plane="pod"} 0.3333', rendered)
+        self.assertIn('advanced_fabric_dns_probe_responses{protocol="udp",query="kubernetes.default.svc.cluster.local",rcode="0",server="10.43.0.10",server_role="stable",source_node="a",source_plane="host"}', rendered)
+        self.assertIn("advanced_fabric_doh_probe_latency_p95_milliseconds", rendered)
         self.assertNotIn("result.json", rendered)
 
     def test_shadow_dns_is_required_before_promotion(self):

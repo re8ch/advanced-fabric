@@ -3,30 +3,30 @@ apiVersion: networking.k8s.io/v1
 kind: IngressClass
 metadata:
   name: {{ .Values.advancedFabric.virtualIngress.className }}
-  labels: {app.kubernetes.io/part-of: re8ch-advanced-fabric}
+  labels: {app.kubernetes.io/part-of: advanced-fabric}
 spec:
-  controller: networking.re8ch.com/advanced-fabric-gateway
+  controller: networking.advfab.org/advanced-fabric-gateway
 ---
 apiVersion: v1
 kind: ConfigMap
-metadata: {name: re8ch-advanced-fabric-virtual-ingress, namespace: kube-system}
+metadata: {name: advanced-fabric-virtual-ingress, namespace: kube-system}
 data:
   controller.py: |
 {{ .Files.Get "files/virtual-ingress-controller.py" | indent 4 }}
 ---
 apiVersion: apps/v1
 kind: Deployment
-metadata: {name: re8ch-advanced-fabric-virtual-ingress, namespace: kube-system}
+metadata: {name: advanced-fabric-virtual-ingress, namespace: kube-system}
 spec:
   replicas: 1
   strategy: {type: Recreate}
-  selector: {matchLabels: {app.kubernetes.io/name: re8ch-advanced-fabric-virtual-ingress}}
+  selector: {matchLabels: {app.kubernetes.io/name: advanced-fabric-virtual-ingress}}
   template:
     metadata:
       annotations: {checksum/runtime: {{ .Files.Get "files/virtual-ingress-controller.py" | sha256sum | quote }}}
-      labels: {app.kubernetes.io/name: re8ch-advanced-fabric-virtual-ingress, app.kubernetes.io/part-of: re8ch-advanced-fabric}
+      labels: {app.kubernetes.io/name: advanced-fabric-virtual-ingress, app.kubernetes.io/part-of: advanced-fabric}
     spec:
-      serviceAccountName: re8ch-advanced-fabric
+      serviceAccountName: advanced-fabric
       priorityClassName: system-cluster-critical
       containers:
         - name: controller
@@ -45,5 +45,5 @@ spec:
           securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true, runAsNonRoot: true, runAsUser: 65534}
           resources: {requests: {cpu: 10m, memory: 24Mi}, limits: {cpu: 100m, memory: 64Mi}}
           volumeMounts: [{name: runtime, mountPath: /runtime, readOnly: true}, {name: tmp, mountPath: /tmp}]
-      volumes: [{name: runtime, configMap: {name: re8ch-advanced-fabric-virtual-ingress, defaultMode: 365}}, {name: tmp, emptyDir: {}}]
+      volumes: [{name: runtime, configMap: {name: advanced-fabric-virtual-ingress, defaultMode: 365}}, {name: tmp, emptyDir: {}}]
 {{- end }}

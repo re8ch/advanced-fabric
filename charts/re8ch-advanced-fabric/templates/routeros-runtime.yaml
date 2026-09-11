@@ -1,28 +1,28 @@
 {{- if .Values.routerOS.enabled }}
 apiVersion: v1
 kind: ServiceAccount
-metadata: {name: re8ch-routeros-v2, namespace: {{ .Values.routerOS.namespace }}}
+metadata: {name: advanced-fabric-routeros, namespace: {{ .Values.routerOS.namespace }}}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
-metadata: {name: re8ch-routeros-v2}
+metadata: {name: advanced-fabric-routeros}
 rules:
-  - apiGroups: [networking.re8ch.com]
+  - apiGroups: [networking.advfab.org]
     resources: [routerosnodes]
     verbs: [get, list, watch]
-  - apiGroups: [networking.re8ch.com]
+  - apiGroups: [networking.advfab.org]
     resources: [routerosnodes/status]
     verbs: [get, patch, update]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
-metadata: {name: re8ch-routeros-v2}
-subjects: [{kind: ServiceAccount, name: re8ch-routeros-v2, namespace: {{ .Values.routerOS.namespace }}}]
-roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: re8ch-routeros-v2}
+metadata: {name: advanced-fabric-routeros}
+subjects: [{kind: ServiceAccount, name: advanced-fabric-routeros, namespace: {{ .Values.routerOS.namespace }}}]
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: advanced-fabric-routeros}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
-metadata: {name: re8ch-routeros-v2-credentials, namespace: {{ .Values.routerOS.credentialsSecret.namespace }}}
+metadata: {name: advanced-fabric-routeros-credentials, namespace: {{ .Values.routerOS.credentialsSecret.namespace }}}
 rules:
   - apiGroups: [""]
     resources: [secrets]
@@ -31,30 +31,30 @@ rules:
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
-metadata: {name: re8ch-routeros-v2-credentials, namespace: {{ .Values.routerOS.credentialsSecret.namespace }}}
-subjects: [{kind: ServiceAccount, name: re8ch-routeros-v2, namespace: {{ .Values.routerOS.namespace }}}]
-roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: re8ch-routeros-v2-credentials}
+metadata: {name: advanced-fabric-routeros-credentials, namespace: {{ .Values.routerOS.credentialsSecret.namespace }}}
+subjects: [{kind: ServiceAccount, name: advanced-fabric-routeros, namespace: {{ .Values.routerOS.namespace }}}]
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: advanced-fabric-routeros-credentials}
 ---
 apiVersion: v1
 kind: ConfigMap
-metadata: {name: re8ch-routeros-v2-runtime, namespace: {{ .Values.routerOS.namespace }}}
+metadata: {name: advanced-fabric-routeros-runtime, namespace: {{ .Values.routerOS.namespace }}}
 data:
   controller.py: |
 {{ .Files.Get "files/routeros-controller.py" | indent 4 }}
 ---
 apiVersion: apps/v1
 kind: Deployment
-metadata: {name: re8ch-routeros-v2, namespace: {{ .Values.routerOS.namespace }}}
+metadata: {name: advanced-fabric-routeros, namespace: {{ .Values.routerOS.namespace }}}
 spec:
   replicas: 1
   strategy: {type: Recreate}
-  selector: {matchLabels: {app.kubernetes.io/name: re8ch-routeros-v2}}
+  selector: {matchLabels: {app.kubernetes.io/name: advanced-fabric-routeros}}
   template:
     metadata:
       annotations: {checksum/runtime: {{ .Files.Get "files/routeros-controller.py" | sha256sum | quote }}}
-      labels: {app.kubernetes.io/name: re8ch-routeros-v2}
+      labels: {app.kubernetes.io/name: advanced-fabric-routeros}
     spec:
-      serviceAccountName: re8ch-routeros-v2
+      serviceAccountName: advanced-fabric-routeros
 {{- with .Values.routerOS.nodeSelector }}
       nodeSelector:
 {{ toYaml . | indent 8 }}
@@ -66,5 +66,5 @@ spec:
           securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true, runAsNonRoot: true, runAsUser: 65532}
           resources: {requests: {cpu: 10m, memory: 24Mi}, limits: {cpu: 100m, memory: 64Mi}}
           volumeMounts: [{name: runtime, mountPath: /runtime, readOnly: true}, {name: tmp, mountPath: /tmp}]
-      volumes: [{name: runtime, configMap: {name: re8ch-routeros-v2-runtime}}, {name: tmp, emptyDir: {}}]
+      volumes: [{name: runtime, configMap: {name: advanced-fabric-routeros-runtime}}, {name: tmp, emptyDir: {}}]
 {{- end }}

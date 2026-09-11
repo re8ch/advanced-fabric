@@ -24,9 +24,9 @@ PORT = os.environ.get("KUBERNETES_SERVICE_PORT_HTTPS", "443")
 BASE = f"https://{HOST}:{PORT}"
 TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-MANAGED_LABEL = "networking.re8ch.com/virtual-ingress"
-SOURCE_ANNOTATION = "networking.re8ch.com/source-ingress-uid"
-STATUS_ANNOTATION = "networking.re8ch.com/virtual-ingress-status"
+MANAGED_LABEL = "networking.advfab.org/virtual-ingress"
+SOURCE_ANNOTATION = "networking.advfab.org/source-ingress-uid"
+STATUS_ANNOTATION = "networking.advfab.org/virtual-ingress-status"
 
 
 def request(method, path, body=None):
@@ -128,7 +128,7 @@ def translate(ingress):
                           "backendRefs": [{"name": backend["name"], "port": port.get("number", port.get("name"))}]})
     if not rules:
         raise ValueError("at least one HTTP path is required")
-    section = annotations.get("networking.re8ch.com/gateway-section", DEFAULT_SECTION)
+    section = annotations.get("networking.advfab.org/gateway-section", DEFAULT_SECTION)
     return {"apiVersion": "gateway.networking.k8s.io/v1", "kind": "HTTPRoute",
             "metadata": {"name": route_name(ingress), "namespace": meta["namespace"],
                          "labels": {MANAGED_LABEL: "true"},
@@ -187,13 +187,13 @@ def reconcile():
             continue
         try:
             route = translate(normalize_named_ports(ingress))
-            explicit = ingress.get("metadata", {}).get("annotations", {}).get("networking.re8ch.com/gateway-section", "")
+            explicit = ingress.get("metadata", {}).get("annotations", {}).get("networking.advfab.org/gateway-section", "")
             route["spec"]["parentRefs"] = gateway_parent_refs(gateway, route["spec"]["hostnames"], explicit)
             observed = upsert_route(route)
             if route_ready(observed):
                 if ingress.get("spec", {}).get("ingressClassName") != CLASS:
                     request("PATCH", f"/apis/networking.k8s.io/v1/namespaces/{ingress['metadata']['namespace']}/ingresses/{ingress['metadata']['name']}",
-                            {"metadata": {"annotations": {"networking.re8ch.com/adopted-from-class": ADOPT_SOURCE_CLASS}},
+                            {"metadata": {"annotations": {"networking.advfab.org/adopted-from-class": ADOPT_SOURCE_CLASS}},
                              "spec": {"ingressClassName": CLASS}})
                 set_ingress_state(ingress, "Ready", f"HTTPRoute {route['metadata']['name']} accepted")
             else:

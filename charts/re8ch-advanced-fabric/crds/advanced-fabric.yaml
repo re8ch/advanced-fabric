@@ -1,8 +1,8 @@
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
-metadata: {name: advancedfabrics.networking.re8ch.com}
+metadata: {name: advancedfabrics.networking.advfab.org}
 spec:
-  group: networking.re8ch.com
+  group: networking.advfab.org
   scope: Cluster
   names: {plural: advancedfabrics, singular: advancedfabric, kind: AdvancedFabric, shortNames: [afabric]}
   versions:
@@ -55,9 +55,9 @@ spec:
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
-metadata: {name: networkinterventions.networking.re8ch.com}
+metadata: {name: networkinterventions.networking.advfab.org}
 spec:
-  group: networking.re8ch.com
+  group: networking.advfab.org
   scope: Cluster
   names: {plural: networkinterventions, singular: networkintervention, kind: NetworkIntervention, shortNames: [nint]}
   versions:
@@ -95,9 +95,9 @@ spec:
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
-metadata: {name: networkobservationepisodes.networking.re8ch.com}
+metadata: {name: networkobservationepisodes.networking.advfab.org}
 spec:
-  group: networking.re8ch.com
+  group: networking.advfab.org
   scope: Cluster
   names: {plural: networkobservationepisodes, singular: networkobservationepisode, kind: NetworkObservationEpisode, shortNames: [noe]}
   versions:
@@ -138,9 +138,9 @@ spec:
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
-metadata: {name: networktradeoffestimates.networking.re8ch.com}
+metadata: {name: networktradeoffestimates.networking.advfab.org}
 spec:
-  group: networking.re8ch.com
+  group: networking.advfab.org
   scope: Cluster
   names: {plural: networktradeoffestimates, singular: networktradeoffestimate, kind: NetworkTradeoffEstimate, shortNames: [nte]}
   versions:
@@ -178,9 +178,9 @@ spec:
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
-metadata: {name: tradeofftriangles.networking.re8ch.com}
+metadata: {name: tradeofftriangles.networking.advfab.org}
 spec:
-  group: networking.re8ch.com
+  group: networking.advfab.org
   scope: Cluster
   names: {plural: tradeofftriangles, singular: tradeofftriangle, kind: TradeoffTriangle, shortNames: [tt]}
   versions:
@@ -222,9 +222,9 @@ spec:
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
-metadata: {name: networkpathassessments.networking.re8ch.com}
+metadata: {name: networkpathassessments.networking.advfab.org}
 spec:
-  group: networking.re8ch.com
+  group: networking.advfab.org
   scope: Cluster
   names:
     plural: networkpathassessments
@@ -354,9 +354,9 @@ spec:
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
-metadata: {name: trafficpolicies.networking.re8ch.com}
+metadata: {name: trafficpolicies.networking.advfab.org}
 spec:
-  group: networking.re8ch.com
+  group: networking.advfab.org
   scope: Namespaced
   names: {plural: trafficpolicies, singular: trafficpolicy, kind: TrafficPolicy, shortNames: [tpolicy]}
   versions:

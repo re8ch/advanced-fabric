@@ -13,7 +13,8 @@ name = "advanced-fabric-node-" + node.lower().replace("_", "-").replace(".", "-"
 base = "https://%s:%s" % (os.environ["KUBERNETES_SERVICE_HOST"], os.environ["KUBERNETES_SERVICE_PORT_HTTPS"])
 token = open("/var/run/secrets/kubernetes.io/serviceaccount/token", encoding="utf-8").read().strip()
 context = ssl.create_default_context(cafile="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
-path = "/api/v1/namespaces/kube-system/configmaps/" + name
+namespace = os.environ.get("POD_NAMESPACE", "default")
+path = "/api/v1/namespaces/%s/configmaps/%s" % (namespace, name)
 
 
 def call(method, url, body, content_type):
@@ -28,15 +29,15 @@ while True:
         with open("/status/status.json", encoding="utf-8") as stream:
             status = json.load(stream)
         obj = {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": name,
-            "namespace": "kube-system", "labels": {"app.kubernetes.io/name": "re8ch-advanced-fabric",
-            "app.kubernetes.io/component": "node-status", "networking.re8ch.com/node-status": "true"}},
+            "namespace": namespace, "labels": {"app.kubernetes.io/name": "advanced-fabric",
+            "app.kubernetes.io/component": "node-status", "networking.advfab.org/node-status": "true"}},
             "data": {"status.json": json.dumps(status, separators=(",", ":"))}}
         try:
             call("PATCH", path, obj, "application/merge-patch+json")
         except urllib.error.HTTPError as error:
             if error.code != 404:
                 raise
-            call("POST", "/api/v1/namespaces/kube-system/configmaps", obj, "application/json")
+            call("POST", "/api/v1/namespaces/%s/configmaps" % namespace, obj, "application/json")
     except Exception as error:
         print(json.dumps({"event": "status-publish-error", "node": node, "error": str(error)}), flush=True)
     time.sleep(15)

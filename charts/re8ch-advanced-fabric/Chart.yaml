@@ -1,9 +1,9 @@
 apiVersion: v2
-name: re8ch-advanced-fabric
-description: RE8CH native-routing, FRR spine/leaf fabric, service VIPs, and network economics
+name: advanced-fabric
+description: Public, observe-first Cilium and FRR fabric control and network evidence API
 type: application
-version: 0.25.11
-appVersion: "0.25.11"
+version: 0.26.0
+appVersion: "0.26.0"
 kubeVersion: ">=1.30.0-0"
 home: https://github.com/re8ch/advanced-fabric
 sources:
@@ -13,14 +13,20 @@ maintainers:
     url: https://github.com/re8ch
 keywords: [cilium, bgp, frr, ecmp, k3s, multi-region, networking]
 annotations:
-  networking.re8ch.com/scope: advanced-fabric
-  networking.re8ch.com/compatible-release: re8ch-network-fabric
+  networking.advfab.org/scope: advanced-fabric
+  networking.advfab.org/compatible-release: advanced-fabric
   artifacthub.io/license: MIT
   artifacthub.io/category: networking
   artifacthub.io/operator: "true"
   artifacthub.io/operatorCapabilities: deep insights
   artifacthub.io/containsSecurityUpdates: "false"
   artifacthub.io/changes: |
+    - kind: added
+      description: Publish the storage-neutral Advanced Fabric observation API and advertise it through AdvancedFabric status for public UI consumers.
+    - kind: changed
+      description: Move public CRDs to networking.advfab.org, retain networking.re8ch.com dual-publication for this minor, and remove deployment-specific defaults.
+    - kind: changed
+      description: Package the data-only Headlamp client with producer-owned synchronized relationship coordinates.
     - kind: fixed
       description: Let offline non-origin host transactions converge when their node returns without blocking healthy guarded control-plane VIP origins.
     - kind: fixed
@@ -132,37 +138,37 @@ annotations:
   artifacthub.io/crds: |
     - kind: RouterOSNode
       version: v1alpha2
-      name: routerosnodes.networking.re8ch.com
+      name: routerosnodes.networking.advfab.org
       displayName: RouterOS route-domain boundary
       description: Role-scoped eBGP peers, protected prefixes and static public VIP fallback intent.
     - kind: AdvancedFabric
       version: v1alpha1
-      name: advancedfabrics.networking.re8ch.com
+      name: advancedfabrics.networking.advfab.org
       displayName: Advanced Fabric inventory
       description: Static spine/leaf authority, capacity and failure-domain inventory.
     - kind: TrafficPolicy
       version: v1alpha1
-      name: trafficpolicies.networking.re8ch.com
+      name: trafficpolicies.networking.advfab.org
       displayName: Traffic Policy
       description: Namespace-scoped fastest, balanced or greedy egress intent.
     - kind: NetworkPathAssessment
       version: v1alpha2
-      name: networkpathassessments.networking.re8ch.com
+      name: networkpathassessments.networking.advfab.org
       displayName: Network Path Assessment
       description: Consumer-neutral, freshness-bounded path eligibility evidence for an active subject.
     - kind: NetworkIntervention
       version: v1alpha1
-      name: networkinterventions.networking.re8ch.com
+      name: networkinterventions.networking.advfab.org
       displayName: Network Intervention
       description: Automatically discovered change candidate awaiting aligned experimental windows.
     - kind: NetworkTradeoffEstimate
       version: v1alpha1
-      name: networktradeoffestimates.networking.re8ch.com
+      name: networktradeoffestimates.networking.advfab.org
       displayName: Network Trade-off Estimate
       description: Evidence-bounded finite-difference estimate with explicit identification state.
     - kind: TradeoffTriangle
       version: v1alpha1
-      name: tradeofftriangles.networking.re8ch.com
+      name: tradeofftriangles.networking.advfab.org
       displayName: Trade-off Triangle
       description: A configurable three-variable hypothesis that closes only with identified evidence.
   artifacthub.io/links: |
