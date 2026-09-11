@@ -598,7 +598,8 @@ def structural_observations(nodes, measurement_maps, previous=None, history_limi
 
 
 def discovered_interventions(fabric, statuses, previous, now_text):
-    fingerprints = {"advancedfabric/re8ch": str(fabric.get("metadata", {}).get("generation", 0))}
+    generation = str(fabric.get("metadata", {}).get("generation", 0))
+    fingerprints = {"advancedfabric/re8ch": hashlib.sha256(("generation:" + generation).encode()).hexdigest()}
     for node, status in statuses.items():
         fingerprints["node/" + node] = hashlib.sha256(json.dumps({"datapath": status.get("datapath"),
             "route": status.get("routeFingerprint"), "bgp": status.get("bgpFingerprint")},

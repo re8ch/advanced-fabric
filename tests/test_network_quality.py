@@ -81,7 +81,8 @@ class NetworkQualityTest(unittest.TestCase):
     def test_discovered_change_remains_pending_windows(self):
         fingerprints, events = controller["discovered_interventions"](
             {"metadata": {"generation": 2}}, {}, {"advancedfabric/re8ch": "1"}, "2027-01-15T08:00:00Z")
-        self.assertEqual(fingerprints["advancedfabric/re8ch"], "2")
+        self.assertEqual(len(fingerprints["advancedfabric/re8ch"]), 64)
+        self.assertEqual(events[0]["spec"]["fingerprint"], fingerprints["advancedfabric/re8ch"])
         self.assertEqual(events[0]["status"]["identificationState"], "PendingWindows")
 
     def test_default_triangles_are_open_without_identified_edges(self):
