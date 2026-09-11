@@ -31,6 +31,20 @@ def test_relationship_series_is_bounded_and_has_three_producer_coordinates():
         assert all(0 <= value <= 1 for value in sample["coordinates"].values())
 
 
+def test_relationship_series_prefers_complete_synchronized_slices():
+    history = []
+    for index in range(10):
+        values = complete_values(index)
+        if index < 3:
+            values.pop("d_mode")
+        history.append(point(f"2026-09-11T00:00:{index:02d}Z", values))
+
+    samples = observation_api.relationship_series(history, ["R", "D", "C"], maximum=7)
+
+    assert len(samples) == 7
+    assert all(sample["coordinates"]["D"] is not None for sample in samples)
+
+
 def test_missing_and_right_censored_values_remain_null_not_zero():
     values = complete_values(0)
     values.pop("n_alt")

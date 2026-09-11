@@ -65,7 +65,6 @@ def relationship_series(history, vertices, start=None, end=None, maximum=7):
             continue
         values = point.get("values", {})
         rows.append((timestamp, values))
-    selected = set(bounded_times([timestamp for timestamp, _ in rows], maximum))
     ranges = {}
     for vertex in vertices:
         for symbol in STRUCTURE_SYMBOLS.get(vertex, ()):
@@ -77,8 +76,6 @@ def relationship_series(history, vertices, start=None, end=None, maximum=7):
                 ranges[symbol] = (min(numeric), max(numeric))
     samples = []
     for timestamp, values in rows:
-        if timestamp not in selected:
-            continue
         coordinates, confidence, evidence = {}, {}, {}
         for vertex in vertices:
             components = []
@@ -97,7 +94,14 @@ def relationship_series(history, vertices, start=None, end=None, maximum=7):
                                 "missingSymbols": missing}
         samples.append({"time": timestamp, "coordinates": coordinates,
                         "confidence": confidence, "evidence": evidence})
-    return samples
+    complete_times = [sample["time"] for sample in samples
+                      if all(sample["coordinates"].get(vertex) is not None for vertex in vertices)]
+    selected = set(bounded_times(complete_times, maximum))
+    remaining = maximum - len(selected)
+    if remaining > 0:
+        partial_times = [sample["time"] for sample in samples if sample["time"] not in selected]
+        selected.update(bounded_times(partial_times, remaining))
+    return [sample for sample in samples if sample["time"] in selected]
 
 
 def configmaps(component):
