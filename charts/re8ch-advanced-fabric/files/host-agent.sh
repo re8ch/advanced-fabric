@@ -161,19 +161,21 @@ manage_source_identity_rules() {
   action=$1
   table=advanced_fabric_source_identity
   checksum=$(jq -r '.transaction.checksum' "${NODE_FILE}")
+  marker="tx_$(printf '%s' "${checksum}" | cut -c1-16)"
   if [ "${action}" != apply ]; then
     host nft delete table ip "${table}" 2>/dev/null || true
     return
   fi
-  if host nft list table ip "${table}" 2>/dev/null | grep -Fq "advanced-fabric:${checksum}"; then return; fi
+  if host nft list chain ip "${table}" "${marker}" >/dev/null 2>&1; then return; fi
   host nft delete table ip "${table}" 2>/dev/null || true
   host nft add table ip "${table}"
   host nft add chain ip "${table}" postrouting '{ type nat hook postrouting priority srcnat; policy accept; }'
+  host nft add chain ip "${table}" "${marker}"
   transaction | jq -c '.sourceIdentityRules[]?' | while read -r rule; do
     source=$(printf '%s' "${rule}" | jq -r '.source'); destination=$(printf '%s' "${rule}" | jq -r '.destination')
     protocol=$(printf '%s' "${rule}" | jq -r '.protocol'); port=$(printf '%s' "${rule}" | jq -r '.port')
     host nft add rule ip "${table}" postrouting ip daddr "${destination}" "${protocol}" dport "${port}" \
-      counter snat to "${source}" comment "advanced-fabric:${checksum}"
+      counter snat to "${source}"
   done
 }
 manage_frr_import_prefixes() {

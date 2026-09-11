@@ -31,5 +31,6 @@ def test_host_agent_applies_source_identity_after_routes_and_before_vip_health()
     assert "nft add chain ip" in script
     assert "snat to" in script
     assert 'transaction.checksum' in script
+    assert 'marker="tx_' in script
     apply = script.split('if [ "${apply}" != true ]; then', 1)[1].split("if [ \"${guarded}\"", 1)[0]
     assert apply.index("manage_fallback_routes apply") < apply.index("manage_source_identity_rules apply")
