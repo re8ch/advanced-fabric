@@ -64,8 +64,10 @@ accelerated host/FRR domain. Eligible nodes probe their local kube-apiserver
 `/readyz`; the controller publishes eligibility and node readiness in desired
 state and CR status. Guarded apply requires a checksum-bound per-node
 transaction. `guardedNodes` limits VIP ownership during canary rollout;
-`nodeOperations` declares only exact fallback routes, WireGuard interfaces and
-FRR export prefix lists. The agent authenticates the local `/readyz` check and
+`nodeOperations` declares only exact fallback routes, WireGuard interfaces,
+FRR export prefix lists and source-identity rules. Source-identity rules preserve
+the node-owned accelerated address through an encrypted underlay, so mutual TLS
+peers do not observe a WireGuard transport address. The agent authenticates the local `/readyz` check and
 withdraws BGP before removing the loopback address.
 
 Only an exact address inside `10.250.0.0/24` is accepted. Kubernetes Service

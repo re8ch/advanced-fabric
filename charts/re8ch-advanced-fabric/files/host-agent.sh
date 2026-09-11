@@ -157,6 +157,19 @@ manage_forward_rules() {
     if [ "${action}" = apply ]; then host iptables -C FORWARD -i "${inif}" -o "${outif}" -s "${source}" -d "${destination}" -p "${protocol}" --dport "${port}" -j ACCEPT 2>/dev/null || host iptables -I FORWARD 1 -i "${inif}" -o "${outif}" -s "${source}" -d "${destination}" -p "${protocol}" --dport "${port}" -j ACCEPT; else host iptables -D FORWARD -i "${inif}" -o "${outif}" -s "${source}" -d "${destination}" -p "${protocol}" --dport "${port}" -j ACCEPT 2>/dev/null || true; fi
   done
 }
+manage_source_identity_rules() {
+  action=$1
+  transaction | jq -c '.sourceIdentityRules[]?' | while read -r rule; do
+    source=$(printf '%s' "${rule}" | jq -r '.source'); destination=$(printf '%s' "${rule}" | jq -r '.destination')
+    protocol=$(printf '%s' "${rule}" | jq -r '.protocol'); port=$(printf '%s' "${rule}" | jq -r '.port')
+    if [ "${action}" = apply ]; then
+      host iptables -t nat -C POSTROUTING -d "${destination}" -p "${protocol}" --dport "${port}" -j SNAT --to-source "${source}" 2>/dev/null || \
+        host iptables -t nat -A POSTROUTING -d "${destination}" -p "${protocol}" --dport "${port}" -j SNAT --to-source "${source}"
+    else
+      host iptables -t nat -D POSTROUTING -d "${destination}" -p "${protocol}" --dport "${port}" -j SNAT --to-source "${source}" 2>/dev/null || true
+    fi
+  done
+}
 manage_frr_import_prefixes() {
   vip=$(transaction | jq -r '.vip')
   sequence=$(transaction | jq -r '.frrImportPrefixSequence')
@@ -224,7 +237,7 @@ while :; do
   else
     validate_transaction
     host systemctl is-active --quiet frr
-    manage_fallback_routes apply; manage_wireguard_allowed_ips apply; manage_wireguard_peer_policies apply; manage_frr_transit_prefixes apply; manage_forward_rules apply; manage_frr_import_prefixes; manage_frr_neighbor_policies
+    manage_fallback_routes apply; manage_wireguard_allowed_ips apply; manage_wireguard_peer_policies apply; manage_frr_transit_prefixes apply; manage_forward_rules apply; manage_source_identity_rules apply; manage_frr_import_prefixes; manage_frr_neighbor_policies
     if [ "${guarded}" != true ]; then withdraw_vip; successes=0; failures=0; announced=false
     elif api_healthy; then
       successes=$((successes + 1)); failures=0; threshold=$(jq -r '.controlPlaneApi.healthCheck.successThreshold' "${NODE_FILE}")
