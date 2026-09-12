@@ -2,20 +2,20 @@ apiVersion: v2
 name: advanced-fabric
 description: Public, observe-first Cilium and FRR fabric control and network evidence API
 type: application
-version: 0.26.2
-appVersion: "0.26.2"
+version: 1.0.0-rc.1
+appVersion: "1.0.0-rc.1"
 kubeVersion: ">=1.30.0-0"
-home: https://github.com/re8ch/advanced-fabric
+home: https://advfab.org
 sources:
-  - https://github.com/re8ch/advanced-fabric
+  - https://github.com/advanced-fabrics/core
 maintainers:
-  - name: RE8CH
-    url: https://github.com/re8ch
+  - name: Advanced Fabrics Maintainers
+    url: https://github.com/advanced-fabrics/community/blob/main/MAINTAINERS.md
 keywords: [cilium, bgp, frr, ecmp, k3s, multi-region, networking]
 annotations:
   networking.advfab.org/scope: advanced-fabric
   networking.advfab.org/compatible-release: advanced-fabric
-  artifacthub.io/license: MIT
+  artifacthub.io/license: Apache-2.0
   artifacthub.io/category: networking
   artifacthub.io/operator: "true"
   artifacthub.io/operatorCapabilities: deep insights
@@ -138,7 +138,7 @@ annotations:
     - kind: changed
       description: Native routing is standardized on 10.42.0.0/16 with cross-WAN direct-node routes disabled.
     - kind: changed
-      description: The canonical private image registry endpoint is registry.re8ch.com on HTTPS port 443.
+      description: Runtime images and mirrors are parameterized; public defaults contain no private registry endpoint.
   artifacthub.io/crds: |
     - kind: RouterOSNode
       version: v1alpha2
@@ -177,9 +177,9 @@ annotations:
       description: A configurable three-variable hypothesis that closes only with identified evidence.
   artifacthub.io/links: |
     - name: source
-      url: https://github.com/re8ch/advanced-fabric
+      url: https://github.com/advanced-fabrics/core
     - name: support
-      url: https://github.com/re8ch/advanced-fabric/issues
+      url: https://github.com/advanced-fabrics/core/issues
   artifacthub.io/images: |
     - name: controller
       image: python:3.13-alpine@sha256:540c7d91f98ff6880174c40e99067bf5941eb54d818a7a5e094d188b196a934d
@@ -192,11 +192,6 @@ annotations:
         - linux/amd64
     - name: network-quality-node-exporter
       image: quay.io/prometheus/node-exporter:v1.9.1@sha256:d00a542e409ee618a4edc67da14dd48c5da66726bbd5537ab2af9c1dfc442c8a
-      platforms:
-        - linux/amd64
-        - linux/arm64
-    - name: headlamp-plugin-installer
-      image: docker.io/library/busybox:1.36.1@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
       platforms:
         - linux/amd64
         - linux/arm64

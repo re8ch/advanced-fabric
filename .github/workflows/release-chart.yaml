@@ -5,8 +5,10 @@ on:
     tags: ["v*"]
 
 permissions:
+  id-token: write
   contents: write
   packages: write
+  attestations: write
 
 jobs:
   release:
@@ -22,7 +24,22 @@ jobs:
         run: echo "$GITHUB_TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - run: helm push dist/advanced-fabric-*.tgz oci://ghcr.io/re8ch/charts
+      - run: helm push dist/advanced-fabric-*.tgz oci://ghcr.io/advanced-fabrics/charts
+      - uses: sigstore/cosign-installer@v3
+      - name: Sign immutable chart release
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: cosign sign --yes "ghcr.io/advanced-fabrics/charts/advanced-fabric:${VERSION#v}"
+      - uses: anchore/sbom-action@v0
+        with:
+          path: dist
+          format: spdx-json
+          output-file: dist/advanced-fabric.spdx.json
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/advanced-fabric-*.tgz
       - uses: softprops/action-gh-release@v2
         with:
-          files: dist/advanced-fabric-*.tgz
+          files: |
+            dist/advanced-fabric-*.tgz
+            dist/advanced-fabric.spdx.json
