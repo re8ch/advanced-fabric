@@ -1,0 +1,20 @@
+apiVersion: governance.re8ch.com/v1alpha1
+kind: ClusterResourceIndex
+metadata:
+  name: advanced-fabric
+spec:
+  controlPlane:
+    repository: git@gitlab.com:reachievellc/service-backend.git
+    revision: main
+    indexPath: indexes/deployments.json
+  lookup:
+    module: advanced-fabric
+    catalog: platform
+    declaredDeployments:
+    - advanced-fabric
+  evidence:
+    authority: kubernetes
+    requiredPlanes:
+    - monitoring
+    - deploying
+    - planning
