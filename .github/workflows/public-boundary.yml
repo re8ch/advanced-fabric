@@ -1,0 +1,29 @@
+name: Public boundary
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  boundaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject bundled UI and committed credentials
+        run: |
+          test ! -d plugins/headlamp-advanced-fabric
+          test ! -e charts/re8ch-advanced-fabric/templates/headlamp-plugin.yaml
+          test ! -e charts/re8ch-advanced-fabric/files/headlamp
+          ! git grep -nE '(CF_API_TOKEN|cloudflare.*token|BEGIN (RSA |OPENSSH )?PRIVATE KEY)' -- . ':!.github/workflows/public-boundary.yml'
+      - name: Verify observe-only public defaults
+        run: |
+          test "$(python - <<'PY'
+          import yaml
+          v = yaml.safe_load(open('charts/re8ch-advanced-fabric/values.yaml'))
+          print(str(v['advancedFabric']['enabled']).lower(), str(v['advancedFabric']['applyEnabled']).lower())
+          PY
+          )" = "false false"

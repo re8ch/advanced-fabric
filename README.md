@@ -1,10 +1,17 @@
-# Advanced Fabric
+# Advanced Fabrics Core
 
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/advanced-fabric)](https://artifacthub.io/packages/search?repo=advanced-fabric)
 
-Advanced Fabric is a Helm-packaged control and observation layer for Cilium
-native routing, FRR spine/leaf fabrics, service VIPs and policy-driven network
-economics.
+Advanced Fabrics (AdvFab) is an API-first, provider-neutral control and
+observation framework for cloud-native network fabrics. This repository holds
+the core runtime and its current Helm-packaged reference implementation.
+
+The public contracts live in
+[`advanced-fabrics/api`](https://github.com/advanced-fabrics/api), standards
+decisions use AFEPs in
+[`advanced-fabrics/spec`](https://github.com/advanced-fabrics/spec), and the
+Headlamp client is maintained independently in
+[`advanced-fabrics/headlamp-advanced-fabric`](https://github.com/advanced-fabrics/headlamp-advanced-fabric).
 
 ## Theory-first O/S/I research model
 
@@ -269,20 +276,20 @@ Public defaults are safe: runtime components disabled until explicitly enabled,
 observe-only mode, no node inventory or credentials, no topology-authority
 mutations, and weighted ECMP disabled.
 
-The optional Headlamp plugin presents live per-node datapath mode, tunnel
-interfaces, FRR/BGP/BFD health, kernel ECMP routes, candidate decisions and
-NWQ-1/DNSQ-1 measurements. Enable it with
-`headlampPlugin.enabled=true` when Headlamp uses a shared plugins PVC.
+UI consumers are installed independently and discover the read-only
+Observation API through `AdvancedFabric.status.observationAPI`. The core chart
+does not package, install or configure a Headlamp plugin.
 
 ## Install
 
 ```sh
-helm upgrade --install re8ch-network-fabric \
-  oci://ghcr.io/re8ch/charts/advanced-fabric \
-  --version 0.20.0 \
+helm upgrade --install advanced-fabric \
+  oci://ghcr.io/advanced-fabrics/charts/advanced-fabric \
+  --version 1.0.0-rc.1 \
   --namespace advanced-fabric --create-namespace
 ```
 
+The 1.0 release candidate is not GA until the public release gates pass.
 Provide deployment-specific nodes and quotas through a private values file.
 See [`examples/inventory.example.yaml`](examples/inventory.example.yaml).
 
